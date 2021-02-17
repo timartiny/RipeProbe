@@ -83,7 +83,12 @@ func IntersectCSV(read1, read2, write string, maxCount int) error {
 	}
 
 	writeCSV.Flush()
-	infoLogger.Printf("Read %d records of %s to get intersection of size %d\n", rowCount, read1, maxCount)
+	infoLogger.Printf(
+		"Read %d records of %s to get intersection of size %d\n",
+		rowCount,
+		read1,
+		maxCount,
+	)
 
 	return nil
 }

@@ -13,7 +13,8 @@ import (
 	atlas "github.com/keltia/ripe-atlas"
 )
 
-// LookupAtlas uses apiKey to do DNS (A and AAAA) lookups for domains from probeIds
+// LookupAtlas uses apiKey to do DNS (A and AAAA) lookups for domains from
+// probeIds
 func LookupAtlas(domains []string, apiKey string, probeIds []string) {
 	config := atlas.Config{
 		APIKey: apiKey,
@@ -55,17 +56,24 @@ func LookupAtlas(domains []string, apiKey string, probeIds []string) {
 	probesString := strings.Join(probeIds, ",")
 	dnsRequest := client.NewMeasurement()
 	dnsRequest.Definitions = dnsDefinitions
-	dnsRequest.Probes = []atlas.ProbeSet{{Requested: len(probeIds), Type: "probes", Value: probesString}}
+	dnsRequest.Probes = []atlas.ProbeSet{
+		{Requested: len(probeIds), Type: "probes", Value: probesString},
+	}
 
 	resp, err := client.DNS(dnsRequest)
 	if err != nil {
 		errorLogger.Fatalf("Faild to create DNS measurements, err: %v\n", err)
 	}
 
-	infoLogger.Printf("Successfully created measurements, measurement IDs: %v\n", resp)
+	infoLogger.Printf(
+		"Successfully created measurements, measurement IDs: %v\n",
+		resp,
+	)
 	for id := range resp.Measurements {
 		infoLogger.Printf(
-			"to get response run:\n\tcurl -H \"Authorization: Key %s\" https://atlas.ripe.net/api/v2/measurements/%d/results/ > results.json\n",
+			"to get response run:\n\tcurl -H \"Authorization: Key %s\" "+
+				"https://atlas.ripe.net/api/v2/measurements/%d/results/ > "+
+				"results.json\n",
 			apiKey,
 			id,
 		)
