@@ -38,7 +38,9 @@ func writeProbes(probes []atlas.Probe, countryCode string) {
 	if err != nil {
 		errorLogger.Fatalf("Error unmarshalling probes, err: %v\n", err)
 	}
-	f, err := os.Create(fmt.Sprintf("%s/%s_full_probe_data.json", dataFilePrefix, countryCode))
+	f, err := os.Create(
+		fmt.Sprintf("%s/%s_full_probe_data.json", dataFilePrefix, countryCode),
+	)
 	if err != nil {
 		errorLogger.Fatalf("Couldn't open file: %v\n", err)
 	}
@@ -51,7 +53,9 @@ func writeProbes(probes []atlas.Probe, countryCode string) {
 	f.WriteString("\n")
 	infoLogger.Printf("Wrote full response to %s\n", f.Name())
 
-	probeF, err := os.Create(fmt.Sprintf("%s/%s_probes.json", dataFilePrefix, countryCode))
+	probeF, err := os.Create(
+		fmt.Sprintf("%s/%s_probes.json", dataFilePrefix, countryCode),
+	)
 	if err != nil {
 		errorLogger.Fatalf("Couldn't open file: %v\n", err)
 	}
@@ -70,7 +74,9 @@ func writeProbes(probes []atlas.Probe, countryCode string) {
 
 func getProbes(countryCode string) {
 	if countryCode == "" {
-		errorLogger.Fatalf("To gather probes must enter Countrycode, using flag -c")
+		errorLogger.Fatalf(
+			"To gather probes must enter Countrycode, using flag -c",
+		)
 	}
 
 	probes := experiment.GetProbes(countryCode)
@@ -78,26 +84,47 @@ func getProbes(countryCode string) {
 }
 
 func intersectCSVs(if1, if2, of string, size int) {
-	infoLogger.Printf("Will intersect entries of %s and %s and store intersection (of size %d) in %s\n", if1, if2, size, of)
+	infoLogger.Printf(
+		"Will intersect entries of %s and %s and store intersection "+
+			"(of size %d) in %s\n",
+		if1,
+		if2,
+		size,
+		of,
+	)
 	if _, err := os.Stat(if2); os.IsNotExist(err) {
-		errorLogger.Printf("File %s does not exist, using %s/global.csv as default\n", if2, dataFilePrefix)
+		errorLogger.Printf(
+			"File %s does not exist, using %s/global.csv as default\n",
+			if2,
+			dataFilePrefix,
+		)
 		if2 = fmt.Sprintf("%s/global.csv", dataFilePrefix)
 	}
 	err := experiment.IntersectCSV(if1, if2, of, size)
 	if err != nil {
-		errorLogger.Fatalf("Error intersecting files, will stop execution: %v\n", err)
+		errorLogger.Fatalf(
+			"Error intersecting files, will stop execution: %v\n",
+			err,
+		)
 	}
 
 }
 
 func lookupCSV(domainPath, outPath string) {
-	infoLogger.Printf("Looking for v6 addresses of domains from %s. Storing results in %s\n", domainPath, outPath)
+	infoLogger.Printf(
+		"Looking for v6 addresses of domains from %s. Storing results in %s\n",
+		domainPath,
+		outPath,
+	)
 	experiment.LookupCSV(domainPath, outPath)
 }
 
 func atlasExperiment(csvFile, apiKey, probeFile string) {
 	if len(apiKey) <= 0 {
-		errorLogger.Fatalf("To do atlas experiments you need to provide an API key with --apiKey")
+		errorLogger.Fatalf(
+			"To do atlas experiments you need to provide an API key " +
+				"with --apiKey",
+		)
 	}
 	f, err := os.Open(csvFile)
 	if err != nil {
@@ -153,31 +180,80 @@ func atlasExperiment(csvFile, apiKey, probeFile string) {
 
 func main() {
 	dataFilePrefix = "../../data"
-	countryCode := flag.String("c", "", "The Country Code to request probes from")
-	noProbeFlag := flag.Bool("noprobe", false, "Will stop script from looking for probes from given country")
-	noIntersectFlag := flag.Bool("nointersect", false, "Will stop script from intersecting CitizenLab and Tranco CSV files. Future steps will assume intersection.csv exists")
-	intersectSize := flag.Int("intersectsize", 50, "Desired size of the intersection, defaults to 10")
-	noLookupFlag := flag.Bool("nolookup", false, "Will stop script from looking up whether intersection file has v6 addresses. Future steps will assume lookup.csv exists")
-	noAtlasFlag := flag.Bool("noatlas", false, "Will stop script from looking up v6 addresses from RIPE Atlas, using probe list")
+	countryCode := flag.String(
+		"c",
+		"",
+		"The Country Code to request probes from",
+	)
+	noProbeFlag := flag.Bool(
+		"noprobe",
+		false,
+		"Will stop script from looking for probes from given country",
+	)
+	noIntersectFlag := flag.Bool(
+		"nointersect",
+		false,
+		"Will stop script from intersecting CitizenLab and Tranco CSV files. "+
+			"Future steps will assume intersection.csv exists",
+	)
+	intersectSize := flag.Int(
+		"intersectsize",
+		50,
+		"Desired size of the intersection, defaults to 10",
+	)
+	noLookupFlag := flag.Bool(
+		"nolookup",
+		false,
+		"Will stop script from looking up whether intersection file has v6 "+
+			"addresses. Future steps will assume lookup.csv exists",
+	)
+	noAtlasFlag := flag.Bool(
+		"noatlas",
+		false,
+		"Will stop script from looking up v6 addresses from RIPE Atlas, "+
+			"using probe list",
+	)
 	apiKey := flag.String("apiKey", "", "API key as string")
 
 	flag.Parse()
-	infoLogger = log.New(os.Stderr, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
-	errorLogger = log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
+	infoLogger = log.New(
+		os.Stderr,
+		"INFO: ",
+		log.Ldate|log.Ltime|log.Lshortfile,
+	)
+	errorLogger = log.New(
+		os.Stderr,
+		"ERROR: ",
+		log.Ldate|log.Ltime|log.Lshortfile,
+	)
 	if !*noProbeFlag {
 		infoLogger.Printf("Gathering live probes from %s\n", *countryCode)
 		getProbes(*countryCode)
 	}
 
 	if !*noIntersectFlag {
-		intersectCSVs(fmt.Sprintf("%s/top-1m.csv", dataFilePrefix), strings.ToLower(fmt.Sprintf("%s/%s.csv", dataFilePrefix, *countryCode)), fmt.Sprintf("%s/%s_intersection.csv", dataFilePrefix, *countryCode), *intersectSize)
+		intersectCSVs(
+			fmt.Sprintf("%s/top-1m.csv", dataFilePrefix),
+			strings.ToLower(
+				fmt.Sprintf("%s/%s.csv", dataFilePrefix, *countryCode),
+			),
+			fmt.Sprintf("%s/%s_intersection.csv", dataFilePrefix, *countryCode),
+			*intersectSize,
+		)
 	}
 
 	if !*noLookupFlag {
-		lookupCSV(fmt.Sprintf("%s/%s_intersection.csv", dataFilePrefix, *countryCode), fmt.Sprintf("%s/%s_lookup.csv", dataFilePrefix, *countryCode))
+		lookupCSV(
+			fmt.Sprintf("%s/%s_intersection.csv", dataFilePrefix, *countryCode),
+			fmt.Sprintf("%s/%s_lookup.csv", dataFilePrefix, *countryCode),
+		)
 	}
 
 	if !*noAtlasFlag {
-		atlasExperiment(fmt.Sprintf("%s/%s_lookup.csv", dataFilePrefix, *countryCode), *apiKey, fmt.Sprintf("%s/%s_probes.json", dataFilePrefix, *countryCode))
+		atlasExperiment(
+			fmt.Sprintf("%s/%s_lookup.csv", dataFilePrefix, *countryCode),
+			*apiKey,
+			fmt.Sprintf("%s/%s_probes.json", dataFilePrefix, *countryCode),
+		)
 	}
 }
