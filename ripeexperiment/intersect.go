@@ -30,8 +30,9 @@ func getColumn(doubleList [][]string, columnID int) map[string]struct{} {
 	return column
 }
 
-// IntersectCSV two csv files looking for maxCount intersections, writing records to
-// write. Reads all of read2 into memory, so it should be the smaller file.
+// IntersectCSV two csv files looking for maxCount intersections, writing
+// records to write. Reads all of read2 into memory, so it should be the smaller
+// file.
 func IntersectCSV(read1, read2, write string, maxCount int) error {
 	f1, err := os.Open(read1)
 	if err != nil {

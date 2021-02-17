@@ -13,7 +13,8 @@ type ProbeIPs struct {
 	PrefixV6  string `json:"prefix_v6"`
 }
 
-// GetProbes uses the ripe-atlas client to get online probes from a given country code
+// GetProbes uses the ripe-atlas client to get online probes from a given
+// country code
 func GetProbes(countryCode string) []atlas.Probe {
 	client, err := atlas.NewClient(atlas.Config{})
 	if err != nil {

@@ -64,7 +64,11 @@ func LookupAtlas(domains []string, apiKey string, probeIds []string) {
 
 	infoLogger.Printf("Successfully created measurements, measurement IDs: %v\n", resp)
 	for id := range resp.Measurements {
-		infoLogger.Printf("to get response run:\n\tcurl -H \"Authorization: Key %s\" https://atlas.ripe.net/api/v2/measurements/%d/results/ > results.json\n", apiKey, id)
+		infoLogger.Printf(
+			"to get response run:\n\tcurl -H \"Authorization: Key %s\" https://atlas.ripe.net/api/v2/measurements/%d/results/ > results.json\n",
+			apiKey,
+			id,
+		)
 	}
 }
 
@@ -113,11 +117,16 @@ func writeDomain(data chan string, done chan bool, outPath string) {
 	done <- true
 }
 
-// LookupCSV reads domains from file and finds the ipaddr for each domain, records v6 ones.
+// LookupCSV reads domains from file and finds the ipaddr for each domain,
+// records v6 ones.
 func LookupCSV(csvPath, outPath string) {
 	csvFile, err := os.Open(csvPath)
 	if err != nil {
-		errorLogger.Fatalf("Could not open CSV file: %v, err: %v\n", csvPath, err)
+		errorLogger.Fatalf(
+			"Could not open CSV file: %v, err: %v\n",
+			csvPath,
+			err,
+		)
 	}
 	defer csvFile.Close()
 
