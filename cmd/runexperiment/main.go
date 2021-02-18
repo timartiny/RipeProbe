@@ -183,7 +183,7 @@ func atlasExperiment(csvFile, apiKey, probeFile string) {
 
 func saveIds(ids []int) {
 	currentTime := time.Now()
-	idFile, err := os.Create(currentTime.String())
+	idFile, err := os.Create(dataFilePrefix + currentTime.String())
 	if err != nil {
 		errorLogger.Fatalf(
 			"error creating file to save measurements: %v\n",
