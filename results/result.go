@@ -1,4 +1,4 @@
-package result
+package results
 
 //Result stores actual result of query, stored in abuf, needs to be decoded.
 type Result struct {
