@@ -15,7 +15,7 @@ import (
 
 // LookupAtlas uses apiKey to do DNS (A and AAAA) lookups for domains from
 // probeIds
-func LookupAtlas(domains []string, apiKey string, probeIds []string) {
+func LookupAtlas(domains []string, apiKey string, probeIds []string) []int {
 	config := atlas.Config{
 		APIKey: apiKey,
 	}
@@ -78,6 +78,8 @@ func LookupAtlas(domains []string, apiKey string, probeIds []string) {
 			id,
 		)
 	}
+
+	return resp.Measurements
 }
 
 func lookup(record []string, data chan string, wg *sync.WaitGroup) {
