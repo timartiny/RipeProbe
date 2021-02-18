@@ -10,6 +10,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	atlas "github.com/keltia/ripe-atlas"
 	experiment "github.com/timartiny/RipeProbe/RipeExperiment"
@@ -175,7 +176,25 @@ func atlasExperiment(csvFile, apiKey, probeFile string) {
 
 	infoLogger.Printf("Domains: %v, probes: %v\n", domainList, probeIds)
 
-	// experiment.LookupAtlas(domainList, apiKey, probeIds)
+	measurementIds := experiment.LookupAtlas(domainList, apiKey, probeIds)
+
+	saveIds(measurementIds)
+}
+
+func saveIds(ids []int) {
+	currentTime := time.Now()
+	idFile, err := os.Create(currentTime.String())
+	if err != nil {
+		errorLogger.Fatalf(
+			"error creating file to save measurements: %v\n",
+			err,
+		)
+	}
+
+	for _, id := range ids {
+		idFile.WriteString(fmt.Sprintf("%d\n", id))
+	}
+
 }
 
 func main() {
