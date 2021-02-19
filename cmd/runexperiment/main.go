@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/csv"
 	"encoding/json"
 	"flag"
@@ -84,7 +85,126 @@ func getProbes(countryCode string) {
 	writeProbes(probes, countryCode)
 }
 
-func intersectCSVs(if1, if2, of string, size int) {
+func addOONI(csvPath, jsonPath, alexaPath string) {
+	csvFile, err := os.Open(csvPath)
+	if err != nil {
+		errorLogger.Fatalf("error opening csv file, %s: %v\n", csvPath, err)
+	}
+
+	reader := csv.NewReader(csvFile)
+	allRecords, err := reader.ReadAll()
+	if err != nil {
+		errorLogger.Fatalf("error reading csv file, %v\n", err)
+	}
+
+	csvFile.Close()
+
+	jsonFile, err := os.Open(jsonPath)
+	if err != nil {
+		errorLogger.Fatalf("error opening JSON file, %s: %v\n", jsonPath, err)
+	}
+	defer jsonFile.Close()
+
+	jsonBytes, err := ioutil.ReadAll(jsonFile)
+	if err != nil {
+		errorLogger.Fatalf("error reading JSON file, %v\n", err)
+	}
+	var actualJSON map[string]interface{}
+	json.Unmarshal(jsonBytes, &actualJSON)
+
+	var count int
+	var ooniDomains []string
+
+	ooniReplace := map[string]string{
+		"facebook_messenger": "facebook.com",
+		"whatsapp":           "web.whatsapp.com",
+		"telegram":           "web.telegram.org",
+	}
+	for key := range actualJSON {
+		if count >= 5 {
+			break
+		}
+		replace, ok := ooniReplace[key]
+		if ok {
+			key = replace
+		}
+		protoIndex := strings.Index(key, "://")
+		hostAndPath := key
+		if protoIndex != -1 {
+			hostAndPath = key[protoIndex+3:]
+		}
+		wwwIndex := strings.Index(hostAndPath, "www.")
+		if wwwIndex != -1 {
+			hostAndPath = hostAndPath[wwwIndex+4:]
+		}
+		hostAndPathLen := len(hostAndPath)
+		if hostAndPathLen > 0 && hostAndPath[hostAndPathLen-1] == '/' {
+			hostAndPath = hostAndPath[:hostAndPathLen-1]
+		}
+		ooniDomains = append(ooniDomains, hostAndPath)
+		count++
+	}
+	infoLogger.Printf("OONI domains: %v\n", ooniDomains)
+
+	alexaFile, err := os.Open(alexaPath)
+	if err != nil {
+		errorLogger.Fatalf("error opening Alexa file, %s: %v\n", alexaPath, err)
+	}
+	defer alexaFile.Close()
+
+	var alexaDomains []string
+	scanner := bufio.NewScanner(alexaFile)
+
+	for scanner.Scan() {
+		alexaDomains = append(alexaDomains, scanner.Text())
+	}
+
+	infoLogger.Printf("Alexa domains: %v\n", alexaDomains)
+
+	// now write back to csvPath with some header and source info and OONI domains
+	csvFile, err = os.Create(csvPath)
+	if err != nil {
+		errorLogger.Fatalf("Error opening csv file for writing, %v\n", err)
+	}
+	defer csvFile.Close()
+
+	writer := csv.NewWriter(csvFile)
+
+	err = writer.Write([]string{"Rank", "Domain", "Source"})
+	if err != nil {
+		errorLogger.Fatalf("Error writing to file: %v\n", err)
+	}
+
+	for _, record := range allRecords {
+		record = append(record, "Tranco/CitizenLab")
+		err = writer.Write(record)
+		if err != nil {
+			errorLogger.Fatalf("Error writing to file: %v\n", err)
+		}
+		writer.Flush()
+	}
+
+	for _, domain := range ooniDomains {
+		record := []string{"-", domain, "OONI"}
+		err = writer.Write(record)
+		if err != nil {
+			errorLogger.Fatalf("Error writing to file: %v\n", err)
+		}
+		writer.Flush()
+	}
+
+	for _, domain := range alexaDomains {
+		record := []string{"-", domain, "Alexa"}
+		err = writer.Write(record)
+		if err != nil {
+			errorLogger.Fatalf("Error writing to file: %v\n", err)
+		}
+		writer.Flush()
+	}
+	writer.Flush()
+}
+
+func intersectCSVs(if1, if2, if3, if4, of string, size int) {
 	infoLogger.Printf(
 		"Will intersect entries of %s and %s and store intersection "+
 			"(of size %d) in %s\n",
@@ -109,6 +229,8 @@ func intersectCSVs(if1, if2, of string, size int) {
 		)
 	}
 
+	infoLogger.Println("Now add in OONI data")
+	addOONI(of, if3, if4)
 }
 
 func lookupCSV(domainPath, outPath string) {
@@ -256,6 +378,8 @@ func main() {
 			strings.ToLower(
 				fmt.Sprintf("%s/%s.csv", dataFilePrefix, *countryCode),
 			),
+			fmt.Sprintf("%s/%s_OONI.json", dataFilePrefix, *countryCode),
+			fmt.Sprintf("%s/%s_Alexa.dat", dataFilePrefix, *countryCode),
 			fmt.Sprintf("%s/%s_intersection.csv", dataFilePrefix, *countryCode),
 			*intersectSize,
 		)

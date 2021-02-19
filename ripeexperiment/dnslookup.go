@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -86,9 +85,10 @@ func lookup(record []string, data chan string, wg *sync.WaitGroup) {
 	ipRecords, _ := net.LookupIP(record[1])
 	for _, ip := range ipRecords {
 		// fmt.Println(ip)
-		if ip.To4() == nil {
-			rank, _ := strconv.ParseFloat(record[0], 64)
-			data <- fmt.Sprintf("%d\t%s\t%s", int(rank), record[1], ip.String())
+		if ip.To4() == nil || record[2] == "OONI" || record[2] == "Alexa" {
+			data <- fmt.Sprintf(
+				"%s\t%s\t%s\t%s", record[0], record[1], record[2], ip.String(),
+			)
 			break
 		}
 	}
@@ -106,7 +106,9 @@ func writeDomain(data chan string, done chan bool, outPath string) {
 
 	csvWriter := csv.NewWriter(f)
 
-	err = csvWriter.Write([]string{"Rank", "Domain", "Local Address (v6)"})
+	err = csvWriter.Write(
+		[]string{"Rank", "Domain", "Source", "Local Address"},
+	)
 	if err != nil {
 		done <- false
 		errorLogger.Fatalf("Can't write to file, err: %v\n", err)
@@ -145,6 +147,11 @@ func LookupCSV(csvPath, outPath string) {
 	data := make(chan string)
 	done := make(chan bool)
 
+	//read title record
+	_, err = csvReader.Read()
+	if err != nil {
+		errorLogger.Fatalf("error reading record, err: %v\n", err)
+	}
 	for {
 		record, err := csvReader.Read()
 		if err == io.EOF {
