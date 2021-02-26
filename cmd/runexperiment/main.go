@@ -204,7 +204,7 @@ func addOONI(csvPath, jsonPath, alexaPath string) {
 	writer.Flush()
 }
 
-func intersectCSVs(if1, if2, if3, if4, of string, size int) {
+func intersectCSVs(if1, if2, of string, size int) {
 	infoLogger.Printf(
 		"Will intersect entries of %s and %s and store intersection "+
 			"(of size %d) in %s\n",
@@ -229,8 +229,6 @@ func intersectCSVs(if1, if2, if3, if4, of string, size int) {
 		)
 	}
 
-	infoLogger.Println("Now add in OONI data")
-	addOONI(of, if3, if4)
 }
 
 func lookupCSV(domainPath, outPath string) {
@@ -319,6 +317,30 @@ func saveIds(ids []int) {
 
 }
 
+func datToCSV(datFile, csvFile string) {
+	dF, err := os.Open(datFile)
+	if err != nil {
+		errorLogger.Fatalf("Error opening file: %s, %v\n", datFile, err)
+	}
+	defer dF.Close()
+
+	cF, err := os.Create(csvFile)
+	if err != nil {
+		errorLogger.Fatalf("Error opening file: %s, %v\n", csvFile, err)
+	}
+	defer cF.Close()
+
+	domainScanner := bufio.NewScanner(dF)
+	csvWriter := csv.NewWriter(cF)
+	csvWriter.Write([]string{"Rank", "Domain", "Source"})
+
+	for domainScanner.Scan() {
+		csvWriter.Write([]string{"-", domainScanner.Text(), "Manual"})
+		csvWriter.Flush()
+	}
+	csvWriter.Flush()
+}
+
 func main() {
 	dataFilePrefix = "../../data"
 	countryCode := flag.String(
@@ -342,6 +364,11 @@ func main() {
 		50,
 		"Desired size of the intersection, defaults to 10",
 	)
+	noAddExtraDomainsFlag := flag.Bool(
+		"noExtraDomains",
+		false,
+		"Will stop the script from adding Alexa and OONI domains.",
+	)
 	noLookupFlag := flag.Bool(
 		"nolookup",
 		false,
@@ -353,6 +380,12 @@ func main() {
 		false,
 		"Will stop script from looking up v6 addresses from RIPE Atlas, "+
 			"using probe list",
+	)
+	setDomainsFile := flag.String(
+		"setDomains",
+		"",
+		"Will skip most of the steps in this script and use a file of "+
+			"domains, passed through this command",
 	)
 	apiKey := flag.String("apiKey", "", "API key as string")
 
@@ -367,22 +400,37 @@ func main() {
 		"ERROR: ",
 		log.Ldate|log.Ltime|log.Lshortfile,
 	)
-	if !*noProbeFlag {
-		infoLogger.Printf("Gathering live probes from %s\n", *countryCode)
-		getProbes(*countryCode)
-	}
 
-	if !*noIntersectFlag {
-		intersectCSVs(
-			fmt.Sprintf("%s/top-1m.csv", dataFilePrefix),
-			strings.ToLower(
-				fmt.Sprintf("%s/%s.csv", dataFilePrefix, *countryCode),
-			),
-			fmt.Sprintf("%s/%s_OONI.json", dataFilePrefix, *countryCode),
-			fmt.Sprintf("%s/%s_Alexa.dat", dataFilePrefix, *countryCode),
+	if len(*setDomainsFile) != 0 {
+		datToCSV(
+			*setDomainsFile,
 			fmt.Sprintf("%s/%s_intersection.csv", dataFilePrefix, *countryCode),
-			*intersectSize,
 		)
+	} else {
+		if !*noProbeFlag {
+			infoLogger.Printf("Gathering live probes from %s\n", *countryCode)
+			getProbes(*countryCode)
+		}
+
+		if !*noIntersectFlag {
+			intersectCSVs(
+				fmt.Sprintf("%s/top-1m.csv", dataFilePrefix),
+				strings.ToLower(
+					fmt.Sprintf("%s/%s.csv", dataFilePrefix, *countryCode),
+				),
+				fmt.Sprintf("%s/%s_intersection.csv", dataFilePrefix, *countryCode),
+				*intersectSize,
+			)
+		}
+
+		if !*noAddExtraDomainsFlag {
+			infoLogger.Println("Now add in OONI and Alexa domains")
+			addOONI(
+				fmt.Sprintf("%s/%s_intersection.csv", dataFilePrefix, *countryCode),
+				fmt.Sprintf("%s/%s_OONI.json", dataFilePrefix, *countryCode),
+				fmt.Sprintf("%s/%s_Alexa.dat", dataFilePrefix, *countryCode),
+			)
+		}
 	}
 
 	if !*noLookupFlag {
