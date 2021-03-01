@@ -436,7 +436,7 @@ func main() {
 	if !*noLookupFlag {
 		lookupCSV(
 			fmt.Sprintf("%s/%s_intersection.csv", dataFilePrefix, *countryCode),
-			fmt.Sprintf("%s/%s_lookup.csv", dataFilePrefix, *countryCode),
+			fmt.Sprintf("%s/%s_lookup.json", dataFilePrefix, *countryCode),
 		)
 	}
 
