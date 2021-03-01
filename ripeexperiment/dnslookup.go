@@ -2,6 +2,7 @@ package ripeexperiment
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"io"
 	"net"
 	"os"
@@ -138,17 +139,18 @@ func writeDomain(data chan LookupResult, done chan bool, outPath string) {
 	// }
 	// csvWriter.Flush()
 	for domain := range data {
-		split := strings.Split(domain, "\t")
-		// _, err = f.WriteString(domain + "\n")
-		err = csvWriter.Write(split)
+		jBytes, err := json.Marshal(&domain)
 		if err != nil {
-			done <- false
-			errorLogger.Fatalf("Can't write to file, err: %v\n", err)
+			errorLogger.Printf(
+				"Error converting data to json: %v, %v\n",
+				domain,
+				err,
+			)
 		}
-		csvWriter.Flush()
+		f.Write(jBytes)
+		f.WriteString("\n")
 	}
 
-	csvWriter.Flush()
 	done <- true
 }
 
