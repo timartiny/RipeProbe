@@ -15,11 +15,11 @@ import (
 
 // LookupResult stores the results of a DNS lookup for a domain.
 type LookupResult struct {
-	Domain string   `json:"domain"`
-	Rank   int      `json:"rank"`
-	Source string   `json:"source"`
-	V4     []string `json:"v4"`
-	V6     []string `json:"v6"`
+	Domain  string   `json:"domain"`
+	Rank    int      `json:"rank"`
+	Source  string   `json:"source"`
+	LocalV4 []string `json:"local_v4_ips"`
+	LocalV6 []string `json:"local_v6_ips"`
 }
 
 // LookupAtlas uses apiKey to do DNS (A and AAAA) lookups for domains from
@@ -110,9 +110,9 @@ func lookup(record []string, data chan LookupResult, wg *sync.WaitGroup) {
 	for _, ip := range ipRecords {
 		// fmt.Println(ip)
 		if ip.To4() == nil {
-			result.V6 = append(result.V6, ip.String())
+			result.LocalV6 = append(result.LocalV6, ip.String())
 		} else {
-			result.V4 = append(result.V4, ip.String())
+			result.LocalV4 = append(result.LocalV4, ip.String())
 		}
 	}
 
