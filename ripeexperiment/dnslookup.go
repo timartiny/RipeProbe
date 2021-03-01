@@ -138,7 +138,12 @@ func writeDomain(data chan LookupResult, done chan bool, outPath string) {
 	// 	errorLogger.Fatalf("Can't write to file, err: %v\n", err)
 	// }
 	// csvWriter.Flush()
+	f.WriteString("[")
+	writeComma := false
 	for domain := range data {
+		if writeComma {
+			f.WriteString(",")
+		}
 		jBytes, err := json.Marshal(&domain)
 		if err != nil {
 			errorLogger.Printf(
@@ -148,9 +153,10 @@ func writeDomain(data chan LookupResult, done chan bool, outPath string) {
 			)
 		}
 		f.Write(jBytes)
-		f.WriteString("\n")
+		writeComma = true
 	}
 
+	f.WriteString("]")
 	done <- true
 }
 
