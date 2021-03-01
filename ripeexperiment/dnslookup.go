@@ -2,15 +2,24 @@ package ripeexperiment
 
 import (
 	"encoding/csv"
-	"fmt"
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
 	atlas "github.com/keltia/ripe-atlas"
 )
+
+// LookupResult stores the results of a DNS lookup for a domain.
+type LookupResult struct {
+	Domain string   `json:"domain"`
+	Rank   int      `json:"rank"`
+	Source string   `json:"source"`
+	V4     []string `json:"v4"`
+	V6     []string `json:"v6"`
+}
 
 // LookupAtlas uses apiKey to do DNS (A and AAAA) lookups for domains from
 // probeIds
@@ -81,22 +90,36 @@ func LookupAtlas(domains []string, apiKey string, probeIds []string) []int {
 	return resp.Measurements
 }
 
-func lookup(record []string, data chan string, wg *sync.WaitGroup) {
+func lookup(record []string, data chan LookupResult, wg *sync.WaitGroup) {
 	ipRecords, _ := net.LookupIP(record[1])
+	rank, err := strconv.Atoi(record[0])
+	if err != nil {
+		errorLogger.Printf(
+			"Error converting rank to int: %v, %v\n",
+			record[0],
+			err,
+		)
+		rank = -1
+	}
+	result := LookupResult{
+		Domain: record[1],
+		Rank:   rank,
+		Source: record[2],
+	}
 	for _, ip := range ipRecords {
 		// fmt.Println(ip)
-		if ip.To4() == nil || record[2] == "OONI" || record[2] == "Alexa" {
-			data <- fmt.Sprintf(
-				"%s\t%s\t%s\t%s", record[0], record[1], record[2], ip.String(),
-			)
-			break
+		if ip.To4() == nil {
+			result.V6 = append(result.V6, ip.String())
+		} else {
+			result.V4 = append(result.V4, ip.String())
 		}
 	}
 
+	data <- result
 	wg.Done()
 }
 
-func writeDomain(data chan string, done chan bool, outPath string) {
+func writeDomain(data chan LookupResult, done chan bool, outPath string) {
 	f, err := os.Create(outPath)
 	if err != nil {
 		done <- false
@@ -104,16 +127,16 @@ func writeDomain(data chan string, done chan bool, outPath string) {
 	}
 	defer f.Close()
 
-	csvWriter := csv.NewWriter(f)
+	// csvWriter := csv.NewWriter(f)
 
-	err = csvWriter.Write(
-		[]string{"Rank", "Domain", "Source", "Local Address"},
-	)
-	if err != nil {
-		done <- false
-		errorLogger.Fatalf("Can't write to file, err: %v\n", err)
-	}
-	csvWriter.Flush()
+	// err = csvWriter.Write(
+	// 	[]string{"Rank", "Domain", "Source", "Local Address"},
+	// )
+	// if err != nil {
+	// 	done <- false
+	// 	errorLogger.Fatalf("Can't write to file, err: %v\n", err)
+	// }
+	// csvWriter.Flush()
 	for domain := range data {
 		split := strings.Split(domain, "\t")
 		// _, err = f.WriteString(domain + "\n")
@@ -144,7 +167,7 @@ func LookupCSV(csvPath, outPath string) {
 
 	csvReader := csv.NewReader(csvFile)
 	wg := sync.WaitGroup{}
-	data := make(chan string)
+	data := make(chan LookupResult)
 	done := make(chan bool)
 
 	//read title record
