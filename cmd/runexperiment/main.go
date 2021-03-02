@@ -404,6 +404,15 @@ func main() {
 		log.Ldate|log.Ltime|log.Lshortfile,
 	)
 	currentTime := time.Now()
+	timeStr := fmt.Sprintf(
+		"%d-%d-%d::%d:%0d:%02d",
+		currentTime.Year(),
+		currentTime.Month(),
+		currentTime.Day(),
+		currentTime.Hour(),
+		currentTime.Minute(),
+		currentTime.Second(),
+	)
 	intersectionFile := fmt.Sprintf("%s/%s_intersection.csv", dataFilePrefix, *countryCode)
 	trancoList := fmt.Sprintf("%s/top-1m.csv", dataFilePrefix)
 	citizenLabList := strings.ToLower(
@@ -415,7 +424,7 @@ func main() {
 		"%s/%s_lookup_%s.json",
 		dataFilePrefix,
 		*countryCode,
-		currentTime.String(),
+		timeStr,
 	)
 	probeFile := fmt.Sprintf("%s/%s_probes.json", dataFilePrefix, *countryCode)
 
