@@ -206,7 +206,7 @@ func LookupCSV(csvPath, outPath string) {
 	d := <-done
 
 	if d == true {
-		infoLogger.Println("Wrote to file successfully")
+		infoLogger.Printf("Wrote to %s successfully", outPath)
 	} else {
 		infoLogger.Println("Failed at writing to file")
 	}
