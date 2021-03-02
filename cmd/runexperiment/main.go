@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -240,33 +239,37 @@ func lookupCSV(domainPath, outPath string) {
 	experiment.LookupCSV(domainPath, outPath)
 }
 
-func atlasExperiment(csvFile, apiKey, probeFile string) {
+func atlasExperiment(domainFile, apiKey, probeFile string) {
 	if len(apiKey) <= 0 {
 		errorLogger.Fatalf(
 			"To do atlas experiments you need to provide an API key " +
 				"with --apiKey",
 		)
 	}
-	f, err := os.Open(csvFile)
+	f, err := os.Open(domainFile)
 	if err != nil {
 		errorLogger.Fatalf("Error opening CSV file, err: %v\n", err)
 	}
 	defer f.Close()
 
 	var domainList []string
-	csvReader := csv.NewReader(f)
 
 	// on read to get rid of header
-	csvReader.Read()
-	for i := 0; i < 2; i++ {
-		// for {
-		record, err := csvReader.Read()
-		if err == io.EOF {
+	jBytes, err := ioutil.ReadAll(f)
+	if err != nil {
+		errorLogger.Fatalf("Can't read bytes from %s, %v\n", domainFile, err)
+	}
+	var records []experiment.LookupResult
+	err = json.Unmarshal(jBytes, &records)
+	if err != nil {
+		errorLogger.Fatalf("Can't unmarshal json bytes, %v", err)
+	}
+	for i, record := range records {
+		domainList = append(domainList, record.Domain)
+		//only for now
+		if i >= 2 {
 			break
-		} else if err != nil {
-			errorLogger.Fatalf("error reading record, err: %v\n", err)
 		}
-		domainList = append(domainList, record[1])
 	}
 
 	probeF, err := os.Open(probeFile)
@@ -296,9 +299,9 @@ func atlasExperiment(csvFile, apiKey, probeFile string) {
 
 	infoLogger.Printf("Domains: %v, probes: %v\n", domainList, probeIds)
 
-	measurementIds := experiment.LookupAtlas(domainList, apiKey, probeIds)
+	// measurementIds := experiment.LookupAtlas(domainList, apiKey, probeIds)
 
-	saveIds(measurementIds)
+	// saveIds(measurementIds)
 }
 
 func saveIds(ids []int) {
@@ -400,11 +403,26 @@ func main() {
 		"ERROR: ",
 		log.Ldate|log.Ltime|log.Lshortfile,
 	)
+	currentTime := time.Now()
+	intersectionFile := fmt.Sprintf("%s/%s_intersection.csv", dataFilePrefix, *countryCode)
+	trancoList := fmt.Sprintf("%s/top-1m.csv", dataFilePrefix)
+	citizenLabList := strings.ToLower(
+		fmt.Sprintf("%s/%s.csv", dataFilePrefix, *countryCode),
+	)
+	ooniFile := fmt.Sprintf("%s/%s_OONI.json", dataFilePrefix, *countryCode)
+	alexaFile := fmt.Sprintf("%s/%s_Alexa.dat", dataFilePrefix, *countryCode)
+	lookupFile := fmt.Sprintf(
+		"%s/%s_lookup_%s.json",
+		dataFilePrefix,
+		*countryCode,
+		currentTime.String(),
+	)
+	probeFile := fmt.Sprintf("%s/%s_probes.json", dataFilePrefix, *countryCode)
 
 	if len(*setDomainsFile) != 0 {
 		datToCSV(
 			*setDomainsFile,
-			fmt.Sprintf("%s/%s_intersection.csv", dataFilePrefix, *countryCode),
+			intersectionFile,
 		)
 	} else {
 		if !*noProbeFlag {
@@ -414,11 +432,9 @@ func main() {
 
 		if !*noIntersectFlag {
 			intersectCSVs(
-				fmt.Sprintf("%s/top-1m.csv", dataFilePrefix),
-				strings.ToLower(
-					fmt.Sprintf("%s/%s.csv", dataFilePrefix, *countryCode),
-				),
-				fmt.Sprintf("%s/%s_intersection.csv", dataFilePrefix, *countryCode),
+				trancoList,
+				citizenLabList,
+				intersectionFile,
 				*intersectSize,
 			)
 		}
@@ -426,25 +442,25 @@ func main() {
 		if !*noAddExtraDomainsFlag {
 			infoLogger.Println("Now add in OONI and Alexa domains")
 			addOONI(
-				fmt.Sprintf("%s/%s_intersection.csv", dataFilePrefix, *countryCode),
-				fmt.Sprintf("%s/%s_OONI.json", dataFilePrefix, *countryCode),
-				fmt.Sprintf("%s/%s_Alexa.dat", dataFilePrefix, *countryCode),
+				intersectionFile,
+				ooniFile,
+				alexaFile,
 			)
 		}
 	}
 
 	if !*noLookupFlag {
 		lookupCSV(
-			fmt.Sprintf("%s/%s_intersection.csv", dataFilePrefix, *countryCode),
-			fmt.Sprintf("%s/%s_lookup.json", dataFilePrefix, *countryCode),
+			intersectionFile,
+			lookupFile,
 		)
 	}
 
 	if !*noAtlasFlag {
 		atlasExperiment(
-			fmt.Sprintf("%s/%s_lookup.csv", dataFilePrefix, *countryCode),
+			lookupFile,
 			*apiKey,
-			fmt.Sprintf("%s/%s_probes.json", dataFilePrefix, *countryCode),
+			probeFile,
 		)
 	}
 }
