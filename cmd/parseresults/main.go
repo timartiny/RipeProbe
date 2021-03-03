@@ -8,9 +8,11 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
+	experiment "github.com/timartiny/RipeProbe/RipeExperiment"
 	results "github.com/timartiny/RipeProbe/results"
 )
 
@@ -21,16 +23,13 @@ var (
 	errorLogger *log.Logger
 )
 
-func getJSON(id int) []byte {
-	if id == 0 {
-		errorLogger.Fatalf(
-			"Need a RIPE Atlas measurement id to parse, use --id",
-		)
+func getJSON(path string) []byte {
+	if len(path) == 0 {
+		errorLogger.Fatalf("Need a file name to parse")
 	}
-	fileName := fmt.Sprintf("%s/%d_results.json", dataPrefix, id)
-	file, err := os.Open(fileName)
+	file, err := os.Open(path)
 	if err != nil {
-		errorLogger.Fatalf("Error opening file: %s, %v\n", fileName, err)
+		errorLogger.Fatalf("Error opening file: %s, %v\n", path, err)
 	}
 	defer file.Close()
 
@@ -42,7 +41,8 @@ func getJSON(id int) []byte {
 	return jsonBytes
 }
 
-func parseABuf(abuf string) {
+func parseABuf(abuf string) map[string][]string {
+	resMap := make(map[string][]string)
 	resBytes, err := base64.StdEncoding.DecodeString(abuf)
 	if err != nil {
 		errorLogger.Fatalf("Error decoding base64 str: %s, %v\n", abuf, err)
@@ -54,11 +54,17 @@ func parseABuf(abuf string) {
 		errorLogger.Fatalf("Failed to decode dns packet: %v\n", err)
 	}
 	for _, answer := range dns.Answers {
-		fmt.Printf("%s: %v\n", answer.Name, answer.IP)
+		// fmt.Printf("%s: %v\n", answer.Name, answer.IP)
+		resMap[string(answer.Name)] = append(
+			resMap[string(answer.Name)], answer.IP.String(),
+		)
 	}
+
+	return resMap
 }
 
-func parseResult(mResult results.MeasurementResult) {
+func parseResult(mResult results.MeasurementResult) []map[string][]string {
+	res := make([]map[string][]string, 0)
 	infoLogger.Printf("Parsing resultset for probe: %d\n", mResult.PrbID)
 	for _, resultSet := range mResult.ResultSet {
 		abuf := resultSet.Result.Abuf
@@ -66,13 +72,25 @@ func parseResult(mResult results.MeasurementResult) {
 			infoLogger.Printf("No DNS answer, skipping\n")
 			continue
 		}
-		parseABuf(abuf)
+		res = append(res, parseABuf(abuf))
 	}
+
+	return res
+}
+
+func getDomains(results []experiment.LookupResult) map[string]int {
+	res := make(map[string]int)
+	for i, result := range results {
+		res[result.Domain] = i
+	}
+
+	return res
 }
 
 func main() {
 	dataPrefix = "../../data"
 	measID := flag.Int("id", 0, "Measurement Id of results to parse, one at a time")
+	jsonPath := flag.String("f", "", "Path to JSON file that has lookup domains for associated measurement ID")
 	flag.Parse()
 	infoLogger = log.New(
 		os.Stderr,
@@ -85,11 +103,39 @@ func main() {
 		log.Ldate|log.Ltime|log.Lshortfile,
 	)
 
-	jsonBytes := getJSON(*measID)
+	lookupBytes := getJSON(*jsonPath)
+	var lookup []experiment.LookupResult
+	json.Unmarshal(lookupBytes, &lookup)
+	fmt.Printf("%+v\n", lookup)
+	lookupDomains := getDomains(lookup)
 
+	measBytes := getJSON(fmt.Sprintf("%s/%d_results.json", dataPrefix, *measID))
 	var measResults []results.MeasurementResult
-	json.Unmarshal(jsonBytes, &measResults)
+	json.Unmarshal(measBytes, &measResults)
 	for _, res := range measResults {
-		parseResult(res)
+		answers := parseResult(res)
+		for _, answer := range answers {
+			for domain, ipSlice := range answer {
+				var measResult experiment.MeasurementResult
+				measResult.ID = res.MsmID
+				measResult.ProbeID = res.PrbID
+				fmt.Printf("%s:\t%s\n", domain, ipSlice)
+				if lookupDomains[domain] > 0 {
+					for _, ip := range ipSlice {
+						if strings.Index(ip, ".") != -1 {
+							measResult.V4 = append(measResult.V4, ip)
+						} else if strings.Index(ip, ":") != -1 {
+							measResult.V6 = append(measResult.V6, ip)
+						}
+					}
+				}
+				if len(measResult.V4) > 0 || len(measResult.V6) > 0 {
+					lookup[lookupDomains[domain]].RipeResults = append(
+						lookup[lookupDomains[domain]].RipeResults, measResult,
+					)
+				}
+			}
+		}
 	}
+	fmt.Printf("%+v\n", lookup)
 }
