@@ -405,7 +405,7 @@ func main() {
 	)
 	currentTime := time.Now()
 	timeStr := fmt.Sprintf(
-		"%d-%d-%d::%d:%0d:%02d",
+		"%d-%02d-%02d::%02d:%02d:%02d",
 		currentTime.Year(),
 		currentTime.Month(),
 		currentTime.Day(),
