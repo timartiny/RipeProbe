@@ -15,11 +15,20 @@ import (
 
 // LookupResult stores the results of a DNS lookup for a domain.
 type LookupResult struct {
-	Domain  string   `json:"domain"`
-	Rank    int      `json:"rank"`
-	Source  string   `json:"source"`
-	LocalV4 []string `json:"local_v4_ips"`
-	LocalV6 []string `json:"local_v6_ips"`
+	Domain      string              `json:"domain"`
+	Rank        int                 `json:"rank"`
+	Source      string              `json:"source"`
+	LocalV4     []string            `json:"local_v4_ips"`
+	LocalV6     []string            `json:"local_v6_ips"`
+	RipeResults []MeasurementResult `json:"ripe_results,omitempty"`
+}
+
+// MeasurementResult stores the addresses received from a RIPE measurement.
+type MeasurementResult struct {
+	ID      int      `json:"id"`
+	ProbeID int      `json:"probe_id"`
+	V4      []string `json:"v4"`
+	V6      []string `json:"v6"`
 }
 
 // LookupAtlas uses apiKey to do DNS (A and AAAA) lookups for domains from
