@@ -254,7 +254,6 @@ func atlasExperiment(domainFile, apiKey, probeFile string) {
 
 	var domainList []string
 
-	// on read to get rid of header
 	jBytes, err := ioutil.ReadAll(f)
 	if err != nil {
 		errorLogger.Fatalf("Can't read bytes from %s, %v\n", domainFile, err)
