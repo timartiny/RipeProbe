@@ -137,19 +137,12 @@ func writeDomain(data chan LookupResult, done chan bool, outPath string) {
 	}
 	defer f.Close()
 
-	// csvWriter := csv.NewWriter(f)
-
-	// err = csvWriter.Write(
-	// 	[]string{"Rank", "Domain", "Source", "Local Address"},
-	// )
-	// if err != nil {
-	// 	done <- false
-	// 	errorLogger.Fatalf("Can't write to file, err: %v\n", err)
-	// }
-	// csvWriter.Flush()
 	f.WriteString("[")
 	writeComma := false
 	for domain := range data {
+		if len(domain.LocalV4) == 0 || len(domain.LocalV6) == 0 {
+			continue
+		}
 		if writeComma {
 			f.WriteString(",")
 		}
