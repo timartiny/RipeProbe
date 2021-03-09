@@ -239,7 +239,7 @@ func lookupCSV(domainPath, outPath string) {
 	experiment.LookupCSV(domainPath, outPath)
 }
 
-func atlasExperiment(domainFile, apiKey, probeFile string) {
+func atlasExperiment(domainFile, apiKey, probeFile, timeStr string) {
 	if len(apiKey) <= 0 {
 		errorLogger.Fatalf(
 			"To do atlas experiments you need to provide an API key " +
@@ -263,12 +263,8 @@ func atlasExperiment(domainFile, apiKey, probeFile string) {
 	if err != nil {
 		errorLogger.Fatalf("Can't unmarshal json bytes, %v", err)
 	}
-	for i, record := range records {
+	for _, record := range records {
 		domainList = append(domainList, record.Domain)
-		//only for now
-		if i >= 2 {
-			break
-		}
 	}
 
 	probeF, err := os.Open(probeFile)
@@ -291,21 +287,20 @@ func atlasExperiment(domainFile, apiKey, probeFile string) {
 	var probeIds []string
 
 	// for _, probe := range fullProbes{
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 5; i++ {
 		probeIds = append(probeIds, fmt.Sprint(fullProbes[i].ID))
 		// probeIds = append(probeIds, probe.ID)
 	}
 
 	infoLogger.Printf("Domains: %v, probes: %v\n", domainList, probeIds)
 
-	// measurementIds := experiment.LookupAtlas(domainList, apiKey, probeIds)
+	measurementIds := experiment.LookupAtlas(domainList, apiKey, probeIds)
 
-	// saveIds(measurementIds)
+	saveIds(measurementIds, timeStr)
 }
 
-func saveIds(ids []int) {
-	currentTime := time.Now()
-	idFile, err := os.Create(dataFilePrefix + currentTime.String())
+func saveIds(ids []int, timeStr string) {
+	idFile, err := os.Create(dataFilePrefix + "/Ids-" + timeStr)
 	if err != nil {
 		errorLogger.Fatalf(
 			"error creating file to save measurements: %v\n",
@@ -469,6 +464,7 @@ func main() {
 			lookupFile,
 			*apiKey,
 			probeFile,
+			timeStr,
 		)
 	}
 }

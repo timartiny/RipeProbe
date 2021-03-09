@@ -104,11 +104,11 @@ func lookup(record []string, data chan LookupResult, wg *sync.WaitGroup) {
 	ipRecords, _ := net.LookupIP(record[1])
 	rank, err := strconv.Atoi(record[0])
 	if err != nil {
-		errorLogger.Printf(
-			"Error converting rank to int: %v, %v\n",
-			record[0],
-			err,
-		)
+		// errorLogger.Printf(
+		// 	"Error converting rank to int: %v, %v\n",
+		// 	record[0],
+		// 	err,
+		// )
 		rank = -1
 	}
 	result := LookupResult{
