@@ -136,7 +136,7 @@ func strContains(arr []string, i string) bool {
 }
 
 func main() {
-	dataPrefix = "../../data"
+	dataPrefix = "data"
 	measID := flag.Int("id", 0, "Measurement Id of results to parse, one at a time")
 	jsonPath := flag.String("f", "", "Path to JSON file that has lookup domains for associated measurement ID")
 	flag.Parse()
@@ -154,7 +154,7 @@ func main() {
 	lookupBytes := getJSON(*jsonPath)
 	var lookup []experiment.LookupResult
 	json.Unmarshal(lookupBytes, &lookup)
-	fmt.Printf("%+v\n", lookup)
+	// fmt.Printf("%+v\n", lookup)
 	lookupDomains := getDomains(lookup)
 
 	measBytes := getJSON(fmt.Sprintf("%s/%d_results.json", dataPrefix, *measID))
@@ -202,6 +202,6 @@ func main() {
 			}
 		}
 	}
-	fmt.Printf("%+v\n", lookup)
+	// fmt.Printf("%+v\n", lookup)
 	writeJSON(*jsonPath, lookup)
 }
