@@ -25,8 +25,8 @@ type LookupResult struct {
 
 // MeasurementResult stores the addresses received from a RIPE measurement.
 type MeasurementResult struct {
-	ID      int      `json:"id"`
 	ProbeID int      `json:"probe_id"`
+	IDs     []int    `json:"ids"`
 	V4      []string `json:"v4"`
 	V6      []string `json:"v6"`
 }
