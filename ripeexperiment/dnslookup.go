@@ -58,7 +58,7 @@ func LookupAtlas(domains []string, apiKey string, probeIds []string) []int {
 		}
 		dnsDefinitions = append(dnsDefinitions, dns)
 		dns = atlas.Definition{
-			Description:      "DNS A lookup for " + domain,
+			Description:      "DNS AAAA lookup for " + domain,
 			Type:             "dns",
 			AF:               6,
 			IsOneoff:         true,
