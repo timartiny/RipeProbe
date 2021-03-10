@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bufio"
 	"flag"
+	"fmt"
 	"log"
 	"math/rand"
 	"os"
@@ -49,10 +51,44 @@ func getNProbesNotCountry(size int, excludeCountry string) []atlas.Probe {
 	return ret
 }
 
+func writeProbesToFile(path string, probes []string) {
+	file, err := os.Create(path)
+	if err != nil {
+		errorLogger.Fatalf("Error creating file: %s, %v\n", path, err)
+	}
+
+	for _, id := range probes {
+		file.WriteString(id)
+	}
+}
+
+func getNIDs(num int, path string) []string {
+	var ret []string
+	file, err := os.Open(path)
+	if err != nil {
+		errorLogger.Fatalf("Error opening file: %s, %v\n", path, err)
+	}
+
+	scanner := bufio.NewScanner(file)
+	size := 0
+	for scanner.Scan() {
+		ret = append(ret, scanner.Text())
+		size++
+		if size >= num {
+			break
+		}
+	}
+
+	infoLogger.Printf("Returning %d probe ids\n", size)
+
+	return ret
+}
+
 func main() {
 	dataPrefix = "../../data"
 	numProbes := flag.Int("n", 0, "Number of probes to grab")
 	countryCode := flag.String("c", "", "Country code to exclude from probes")
+	probesPath := flag.String("p", "", "Path to file containing list of probe Ids")
 	flag.Parse()
 	infoLogger = log.New(
 		os.Stderr,
@@ -64,11 +100,26 @@ func main() {
 		"ERROR: ",
 		log.Ldate|log.Ltime|log.Lshortfile,
 	)
-
-	nProbes := getNProbesNotCountry(*numProbes, *countryCode)
-	infoLogger.Printf("probes ids: [")
-	for _, probe := range nProbes {
-		infoLogger.Printf("\t%d", probe.ID)
+	var nProbeIDs []string
+	if len(*probesPath) > 0 {
+		nProbeIDs = getNIDs(
+			*numProbes,
+			fmt.Sprintf("%s/probes_not_%s.dat", dataPrefix, *countryCode),
+		)
+	} else {
+		nProbes := getNProbesNotCountry(*numProbes, *countryCode)
+		for _, probe := range nProbes {
+			nProbeIDs = append(nProbeIDs, fmt.Sprintf("%d", probe.ID))
+		}
+		infoLogger.Printf(
+			"Writing Probe IDs to %s/probes_not_%s.dat\n",
+			dataPrefix,
+			*countryCode,
+		)
+		writeProbesToFile(
+			fmt.Sprintf("%s/probes_not_%s.dat", dataPrefix, *countryCode),
+			nProbeIDs,
+		)
 	}
-	infoLogger.Printf("]\n")
+	infoLogger.Printf("probe ids: %v\n", nProbeIDs)
 }
