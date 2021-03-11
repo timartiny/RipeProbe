@@ -58,7 +58,7 @@ func writeProbesToFile(path string, probes []string) {
 	}
 
 	for _, id := range probes {
-		file.WriteString(id)
+		file.WriteString(id + "\n")
 	}
 }
 
@@ -84,11 +84,58 @@ func getNIDs(num int, path string) []string {
 	return ret
 }
 
+func getProbeIDs(path, countryCode string, num int) []string {
+	var ret []string
+	if len(path) > 0 {
+		ret = getNIDs(
+			num,
+			fmt.Sprintf("%s/probes_not_%s.dat", dataPrefix, countryCode),
+		)
+	} else {
+		nProbes := getNProbesNotCountry(num, countryCode)
+		for _, probe := range nProbes {
+			ret = append(ret, fmt.Sprintf("%d", probe.ID))
+		}
+		infoLogger.Printf(
+			"Writing Probe IDs to %s/probes_not_%s.dat\n",
+			dataPrefix,
+			countryCode,
+		)
+		writeProbesToFile(
+			fmt.Sprintf("%s/probes_not_%s.dat", dataPrefix, countryCode),
+			ret,
+		)
+	}
+
+	return ret
+}
+
+func getResolverIPs(path string) []string {
+	var ret []string
+	if len(path) <= 0 {
+		errorLogger.Fatalf("Must provide path to resolver IPs, use -r")
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		errorLogger.Fatalf("Error opening file: %s, %v\n", path, err)
+	}
+
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		ret = append(ret, scanner.Text())
+	}
+
+	return ret
+}
+
 func main() {
 	dataPrefix = "../../data"
 	numProbes := flag.Int("n", 0, "Number of probes to grab")
 	countryCode := flag.String("c", "", "Country code to exclude from probes")
 	probesPath := flag.String("p", "", "Path to file containing list of probe Ids")
+	resolverIPsPath := flag.String("r", "", "Path to file containing the IPs to use as resolvers")
 	flag.Parse()
 	infoLogger = log.New(
 		os.Stderr,
@@ -100,26 +147,8 @@ func main() {
 		"ERROR: ",
 		log.Ldate|log.Ltime|log.Lshortfile,
 	)
-	var nProbeIDs []string
-	if len(*probesPath) > 0 {
-		nProbeIDs = getNIDs(
-			*numProbes,
-			fmt.Sprintf("%s/probes_not_%s.dat", dataPrefix, *countryCode),
-		)
-	} else {
-		nProbes := getNProbesNotCountry(*numProbes, *countryCode)
-		for _, probe := range nProbes {
-			nProbeIDs = append(nProbeIDs, fmt.Sprintf("%d", probe.ID))
-		}
-		infoLogger.Printf(
-			"Writing Probe IDs to %s/probes_not_%s.dat\n",
-			dataPrefix,
-			*countryCode,
-		)
-		writeProbesToFile(
-			fmt.Sprintf("%s/probes_not_%s.dat", dataPrefix, *countryCode),
-			nProbeIDs,
-		)
-	}
+	nProbeIDs := getProbeIDs(*probesPath, *countryCode, *numProbes)
 	infoLogger.Printf("probe ids: %v\n", nProbeIDs)
+	resolverIPs := getResolverIPs(*resolverIPsPath)
+	infoLogger.Printf("Resolver IPs: %v\n", resolverIPs)
 }
