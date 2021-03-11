@@ -31,9 +31,55 @@ type MeasurementResult struct {
 	V6      []string `json:"v6"`
 }
 
+func makeDNSDefinitions(queries, targets []string) []atlas.Definition {
+	ret := make([]atlas.Definition, 0, len(queries))
+	var selfResolve bool
+
+	if len(targets) > 0 {
+		selfResolve = false
+	} else {
+		selfResolve = true
+		targets = []string{""}
+	}
+	for _, domain := range queries {
+		for _, target := range targets {
+			dns := atlas.Definition{
+				Description:      "DNS A lookup for " + domain,
+				Type:             "dns",
+				AF:               4,
+				IsOneoff:         true,
+				IsPublic:         false,
+				QueryClass:       "IN",
+				QueryType:        "A",
+				Target:           target,
+				QueryArgument:    domain,
+				ResolveOnProbe:   true,
+				UseProbeResolver: selfResolve,
+			}
+			ret = append(ret, dns)
+			dns = atlas.Definition{
+				Description:      "DNS AAAA lookup for " + domain,
+				Type:             "dns",
+				AF:               6,
+				IsOneoff:         true,
+				IsPublic:         false,
+				QueryClass:       "IN",
+				QueryType:        "AAAA",
+				Target:           target,
+				QueryArgument:    domain,
+				ResolveOnProbe:   true,
+				UseProbeResolver: selfResolve,
+			}
+			ret = append(ret, dns)
+		}
+	}
+
+	return ret
+}
+
 // LookupAtlas uses apiKey to do DNS (A and AAAA) lookups for domains from
 // probeIds
-func LookupAtlas(domains []string, apiKey string, probeIds []string) []int {
+func LookupAtlas(queries []string, apiKey string, probeIds []string, targets []string) []int {
 	config := atlas.Config{
 		APIKey: apiKey,
 	}
@@ -41,36 +87,8 @@ func LookupAtlas(domains []string, apiKey string, probeIds []string) []int {
 	if err != nil {
 		errorLogger.Fatalf("Error creating atlas client, err: %v\n", err)
 	}
-	dnsDefinitions := make([]atlas.Definition, 0, len(domains))
+	dnsDefinitions := makeDNSDefinitions(queries, targets)
 
-	for _, domain := range domains {
-		dns := atlas.Definition{
-			Description:      "DNS A lookup for " + domain,
-			Type:             "dns",
-			AF:               4,
-			IsOneoff:         true,
-			IsPublic:         false,
-			QueryClass:       "IN",
-			QueryType:        "A",
-			QueryArgument:    domain,
-			ResolveOnProbe:   true,
-			UseProbeResolver: true,
-		}
-		dnsDefinitions = append(dnsDefinitions, dns)
-		dns = atlas.Definition{
-			Description:      "DNS AAAA lookup for " + domain,
-			Type:             "dns",
-			AF:               6,
-			IsOneoff:         true,
-			IsPublic:         false,
-			QueryClass:       "IN",
-			QueryType:        "AAAA",
-			QueryArgument:    domain,
-			ResolveOnProbe:   true,
-			UseProbeResolver: true,
-		}
-		dnsDefinitions = append(dnsDefinitions, dns)
-	}
 	probesString := strings.Join(probeIds, ",")
 	dnsRequest := client.NewMeasurement()
 	dnsRequest.Definitions = dnsDefinitions
