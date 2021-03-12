@@ -294,7 +294,7 @@ func atlasExperiment(domainFile, apiKey, probeFile, timeStr string) {
 
 	infoLogger.Printf("Domains: %v, probes: %v\n", domainList, probeIds)
 
-	measurementIds := experiment.LookupAtlas(domainList, apiKey, probeIds)
+	measurementIds := experiment.LookupAtlas(domainList, apiKey, probeIds, []string{})
 
 	saveIds(measurementIds, timeStr)
 }

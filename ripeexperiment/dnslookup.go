@@ -43,10 +43,16 @@ func makeDNSDefinitions(queries, targets []string) []atlas.Definition {
 	}
 	for _, domain := range queries {
 		for _, target := range targets {
+			var af int
+			if strings.Index(target, ":") > -1 {
+				af = 6
+			} else {
+				af = 4
+			}
 			dns := atlas.Definition{
 				Description:      "DNS A lookup for " + domain,
 				Type:             "dns",
-				AF:               4,
+				AF:               af,
 				IsOneoff:         true,
 				IsPublic:         false,
 				QueryClass:       "IN",
@@ -60,7 +66,7 @@ func makeDNSDefinitions(queries, targets []string) []atlas.Definition {
 			dns = atlas.Definition{
 				Description:      "DNS AAAA lookup for " + domain,
 				Type:             "dns",
-				AF:               6,
+				AF:               af,
 				IsOneoff:         true,
 				IsPublic:         false,
 				QueryClass:       "IN",
@@ -96,6 +102,7 @@ func LookupAtlas(queries []string, apiKey string, probeIds []string, targets []s
 		{Requested: len(probeIds), Type: "probes", Value: probesString},
 	}
 
+	infoLogger.Printf("request: %v\n", dnsRequest)
 	resp, err := client.DNS(dnsRequest)
 	if err != nil {
 		errorLogger.Fatalf("Faild to create DNS measurements, err: %v\n", err)
@@ -105,7 +112,7 @@ func LookupAtlas(queries []string, apiKey string, probeIds []string, targets []s
 		"Successfully created measurements, measurement IDs: %v\n",
 		resp,
 	)
-	for id := range resp.Measurements {
+	for _, id := range resp.Measurements {
 		infoLogger.Printf(
 			"to get response run:\n\tcurl -H \"Authorization: Key %s\" "+
 				"https://atlas.ripe.net/api/v2/measurements/%d/results/ > "+

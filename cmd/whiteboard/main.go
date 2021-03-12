@@ -10,6 +10,7 @@ import (
 	"time"
 
 	atlas "github.com/keltia/ripe-atlas"
+	experiment "github.com/timartiny/RipeProbe/RipeExperiment"
 )
 
 var dataPrefix string
@@ -110,7 +111,7 @@ func getProbeIDs(path, countryCode string, num int) []string {
 	return ret
 }
 
-func getResolverIPs(path string) []string {
+func getListofStrings(path string) []string {
 	var ret []string
 	if len(path) <= 0 {
 		errorLogger.Fatalf("Must provide path to resolver IPs, use -r")
@@ -130,12 +131,37 @@ func getResolverIPs(path string) []string {
 	return ret
 }
 
+func getResolverIPs(path string) []string {
+	return getListofStrings(path)
+}
+
+func getQueryDomains(path string) []string {
+	return getListofStrings(path)
+}
+
+func saveIds(ids []int, timeStr string) {
+	idFile, err := os.Create(dataPrefix + "/Whiteboard-Ids-" + timeStr)
+	if err != nil {
+		errorLogger.Fatalf(
+			"error creating file to save measurements: %v\n",
+			err,
+		)
+	}
+
+	for _, id := range ids {
+		idFile.WriteString(fmt.Sprintf("%d\n", id))
+	}
+
+}
+
 func main() {
 	dataPrefix = "../../data"
 	numProbes := flag.Int("n", 0, "Number of probes to grab")
 	countryCode := flag.String("c", "", "Country code to exclude from probes")
 	probesPath := flag.String("p", "", "Path to file containing list of probe Ids")
 	resolverIPsPath := flag.String("r", "", "Path to file containing the IPs to use as resolvers")
+	queryDomainsPath := flag.String("q", "", "Path to file containing list of domains to do DNS queries from resolvers")
+	apiKey := flag.String("apiKey", "", "RIPE Atlas API key")
 	flag.Parse()
 	infoLogger = log.New(
 		os.Stderr,
@@ -151,4 +177,19 @@ func main() {
 	infoLogger.Printf("probe ids: %v\n", nProbeIDs)
 	resolverIPs := getResolverIPs(*resolverIPsPath)
 	infoLogger.Printf("Resolver IPs: %v\n", resolverIPs)
+	queryDomains := getQueryDomains(*queryDomainsPath)
+	infoLogger.Printf("Query Domains: %v\n", queryDomains)
+	measurementIDs := experiment.LookupAtlas(queryDomains, *apiKey, nProbeIDs, resolverIPs)
+	currentTime := time.Now()
+	timeStr := fmt.Sprintf(
+		"%d-%02d-%02d::%02d:%02d:%02d",
+		currentTime.Year(),
+		currentTime.Month(),
+		currentTime.Day(),
+		currentTime.Hour(),
+		currentTime.Minute(),
+		currentTime.Second(),
+	)
+
+	saveIds(measurementIDs, timeStr)
 }
