@@ -102,7 +102,6 @@ func LookupAtlas(queries []string, apiKey string, probeIds []string, targets []s
 		{Requested: len(probeIds), Type: "probes", Value: probesString},
 	}
 
-	infoLogger.Printf("request: %v\n", dnsRequest)
 	resp, err := client.DNS(dnsRequest)
 	if err != nil {
 		errorLogger.Fatalf("Faild to create DNS measurements, err: %v\n", err)
