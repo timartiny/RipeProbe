@@ -29,7 +29,9 @@ type ResultSet struct {
 type MeasurementResult struct {
 	Fw              int         `json:"fw,omitempty"`
 	Lts             int         `json:"lts,omitempty"`
+	DestAddr        string      `json:"dst_addr,omitempty"`
 	ResultSet       []ResultSet `json:"resultset,omitempty"`
+	Result          Result      `json:"result,omitempty"`
 	MsmID           int         `json:"msm_id,omitempty"`
 	PrbID           int         `json:"prb_id,omitempty"`
 	Timestamp       int         `json:"timestamp,omitempty"`
@@ -38,4 +40,12 @@ type MeasurementResult struct {
 	Type            string      `json:"type,omitempty"`
 	GroupID         int         `json:"group_id,omitempty"`
 	StoredTimestamp int         `json:"stored_timestamp,omitempty"`
+}
+
+//WhiteboardResult is the wrapper for important info for one measurement
+type WhiteboardResult struct {
+	ProbeID    int                 `json:"probe_id,omitempty"`
+	ProbeIP    string              `json:"probe_ip,omitempty"`
+	ResolverIP string              `json:"resolver_ip,omitempty"`
+	Queries    map[string][]string `json:"queries,omitempty"`
 }
