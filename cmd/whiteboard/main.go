@@ -24,6 +24,8 @@ func getProbes() []atlas.Probe {
 	}
 	opts := make(map[string]string)
 	opts["status"] = "1"
+	opts["prefix_v4"] = "0.0.0.0/0"
+	opts["prefix_v6"] = "0:0:0:0:0:0:0:0/0"
 	probes, err := client.GetProbes(opts)
 	if err != nil {
 		errorLogger.Fatalf("Error getting probes, err: %v\n", err)
@@ -40,12 +42,15 @@ func getNProbesNotCountry(size int, excludeCountry string) []atlas.Probe {
 	rg := rand.New(s)
 
 	infoLogger.Printf(
-		"Filtering down to %d probes not from %s\n", size, excludeCountry,
+		"Filtering down to %d probes not from %s, that have v4 and "+
+			"v6 addresses\n", size, excludeCountry,
 	)
 	for len(ret) < size {
 		rInd := rg.Intn(numProbes)
 		if allProbes[rInd].CountryCode != excludeCountry {
-			ret = append(ret, allProbes[rInd])
+			if len(allProbes[rInd].AddressV4) > 0 && len(allProbes[rInd].AddressV6) > 0 {
+				ret = append(ret, allProbes[rInd])
+			}
 		}
 	}
 
