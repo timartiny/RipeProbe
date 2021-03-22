@@ -120,9 +120,6 @@ func addOONI(csvPath, jsonPath, alexaPath string) {
 		"telegram":           "web.telegram.org",
 	}
 	for key := range actualJSON {
-		if count >= 5 {
-			break
-		}
 		replace, ok := ooniReplace[key]
 		if ok {
 			key = replace
