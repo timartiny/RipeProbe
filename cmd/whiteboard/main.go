@@ -16,6 +16,7 @@ import (
 var dataPrefix string
 var infoLogger *log.Logger
 var errorLogger *log.Logger
+var SKIPCOUNTRIES []string
 
 func getProbes() []atlas.Probe {
 	client, err := atlas.NewClient(atlas.Config{})
@@ -33,7 +34,17 @@ func getProbes() []atlas.Probe {
 	return probes
 }
 
-func getNProbesNotCountry(size int, excludeCountry string) []atlas.Probe {
+func contains(l []string, s string) bool {
+	for _, a := range l {
+		if a == s {
+			return true
+		}
+	}
+
+	return false
+}
+
+func getNProbesNotCountry(size int) []atlas.Probe {
 	var ret []atlas.Probe
 	infoLogger.Printf("Grabbing all RIPE Atlas probes")
 	allProbes := getProbes()
@@ -42,12 +53,12 @@ func getNProbesNotCountry(size int, excludeCountry string) []atlas.Probe {
 	rg := rand.New(s)
 
 	infoLogger.Printf(
-		"Filtering down to %d probes not from %s, that have v4 and "+
-			"v6 addresses\n", size, excludeCountry,
+		"Filtering down to %d probes not from specified countries, that have v4 and "+
+			"v6 addresses\n", size,
 	)
 	for len(ret) < size {
 		rInd := rg.Intn(numProbes)
-		if allProbes[rInd].CountryCode != excludeCountry {
+		if !contains(SKIPCOUNTRIES, allProbes[rInd].CountryCode) {
 			if len(allProbes[rInd].AddressV4) > 0 && len(allProbes[rInd].AddressV6) > 0 {
 				ret = append(ret, allProbes[rInd])
 			}
@@ -98,7 +109,7 @@ func getProbeIDs(path, countryCode string, num int) []string {
 			fmt.Sprintf("%s/probes_not_%s.dat", dataPrefix, countryCode),
 		)
 	} else {
-		nProbes := getNProbesNotCountry(num, countryCode)
+		nProbes := getNProbesNotCountry(num)
 		for _, probe := range nProbes {
 			ret = append(ret, fmt.Sprintf("%d", probe.ID))
 		}
@@ -160,6 +171,7 @@ func saveIds(ids []int, timeStr string) {
 }
 
 func main() {
+	SKIPCOUNTRIES = []string{"CN", "IR", "RU", "SA", "KR", "IN", "PK", "EG", "AR", "BR"}
 	dataPrefix = "../../data"
 	numProbes := flag.Int("n", 0, "Number of probes to grab")
 	countryCode := flag.String("c", "", "Country code to exclude from probes")
