@@ -1,0 +1,25 @@
+ curl --dump-header - -H "Content-Type: application/json" -H "Accept: application/json" -X POST -d '{
+ "definitions": [
+  {
+   "target": "ripe.net",
+   "af": 4,
+   "packets": 3,
+   "size": 48,
+   "description": "my first ping measurement",
+   "resolve_on_probe": false,
+   "skip_dns_check": false,
+   "include_probe_id": false,
+   "type": "ping"
+  }
+ ],
+ "probes": [
+  {
+   "value": "52646",
+   "type": "probes",
+   "requested": 1
+  }
+ ],
+ "is_oneoff": true,
+ "bill_to": "ian.martiny@colorado.edu"
+}' https://atlas.ripe.net/api/v2/measurements//?key=<key>
+
