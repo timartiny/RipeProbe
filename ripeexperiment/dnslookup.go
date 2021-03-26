@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	atlas "github.com/keltia/ripe-atlas"
 )
@@ -44,7 +45,7 @@ func makeDNSDefinitions(queries, targets []string) []atlas.Definition {
 	for _, domain := range queries {
 		for _, target := range targets {
 			var af int
-			if strings.Index(target, ":") > -1 {
+			if strings.Contains(target, ":") {
 				af = 6
 			} else {
 				af = 4
@@ -85,7 +86,7 @@ func makeDNSDefinitions(queries, targets []string) []atlas.Definition {
 
 // LookupAtlas uses apiKey to do DNS (A and AAAA) lookups for domains from
 // probeIds
-func LookupAtlas(queries []string, apiKey string, probeIds []string, targets []string) []int {
+func LookupAtlas(queries []string, apiKey string, probeIds []string, targets []string, startTime, endTime time.Time) ([]int, error) {
 	config := atlas.Config{
 		APIKey: apiKey,
 	}
@@ -101,27 +102,26 @@ func LookupAtlas(queries []string, apiKey string, probeIds []string, targets []s
 	dnsRequest.Probes = []atlas.ProbeSet{
 		{Requested: len(probeIds), Type: "probes", Value: probesString},
 	}
+	dnsRequest.StartTime = int(startTime.Unix())
+	dnsRequest.StopTime = int(endTime.Unix())
 
 	resp, err := client.DNS(dnsRequest)
 	if err != nil {
-		errorLogger.Fatalf("Faild to create DNS measurements, err: %v\n", err)
+		// errorLogger.Printf("%+v\n", dnsDefinitions)
+		b, _ := json.Marshal(&dnsDefinitions)
+		f, _ := os.Create("errorfile")
+		f.Write(b)
+		defer f.Close()
+		errorLogger.Printf("Failed to create DNS measurements, err: %v\n", err)
+		return []int{}, err
 	}
 
 	infoLogger.Printf(
 		"Successfully created measurements, measurement IDs: %v\n",
 		resp,
 	)
-	for _, id := range resp.Measurements {
-		infoLogger.Printf(
-			"to get response run:\n\tcurl -H \"Authorization: Key %s\" "+
-				"https://atlas.ripe.net/api/v2/measurements/%d/results/ > "+
-				"results.json\n",
-			apiKey,
-			id,
-		)
-	}
 
-	return resp.Measurements
+	return resp.Measurements, nil
 }
 
 func lookup(record []string, data chan LookupResult, wg *sync.WaitGroup) {
