@@ -7,11 +7,14 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"strings"
 	"time"
 
 	atlas "github.com/keltia/ripe-atlas"
 	experiment "github.com/timartiny/RipeProbe/RipeExperiment"
 )
+
+const MAX_MEASUREMENTS = 100
 
 var dataPrefix string
 var infoLogger *log.Logger
@@ -148,14 +151,21 @@ func getListofStrings(path string) []string {
 }
 
 func getResolverIPs(path string) []string {
-	return getListofStrings(path)
+	var ret []string
+	fullLines := getListofStrings(path)
+	for _, line := range fullLines {
+		split := strings.Split(line, " ")
+		ret = append(ret, split[0])
+	}
+
+	return ret
 }
 
 func getQueryDomains(path string) []string {
 	return getListofStrings(path)
 }
 
-func saveIds(ids []int, timeStr string) {
+func saveIds(ids []int, apiKey, timeStr string) {
 	idFile, err := os.Create(dataPrefix + "/Whiteboard-Ids-" + timeStr)
 	if err != nil {
 		errorLogger.Fatalf(
@@ -163,11 +173,33 @@ func saveIds(ids []int, timeStr string) {
 			err,
 		)
 	}
+	infoLogger.Printf(
+		"to get responses run:\n\t./fetchMeasurementResults.sh -a \"%s\" -f %s", apiKey, idFile.Name(),
+	)
 
 	for _, id := range ids {
 		idFile.WriteString(fmt.Sprintf("%d\n", id))
 	}
 
+}
+
+func batchDomains(fullList []string, size int) [][]string {
+	var ret [][]string
+	var loopI int
+
+	for loopI = 0; loopI+size <= len(fullList); loopI += size {
+		var tmp []string
+		tmp = append(tmp, fullList[loopI:loopI+size]...)
+		ret = append(ret, tmp)
+	}
+
+	if loopI != len(fullList) {
+		var tmp []string
+		tmp = append(tmp, fullList[loopI:]...)
+		ret = append(ret, tmp)
+	}
+
+	return ret
 }
 
 func main() {
@@ -196,7 +228,29 @@ func main() {
 	infoLogger.Printf("Resolver IPs: %v\n", resolverIPs)
 	queryDomains := getQueryDomains(*queryDomainsPath)
 	infoLogger.Printf("Query Domains: %v\n", queryDomains)
-	measurementIDs := experiment.LookupAtlas(queryDomains, *apiKey, nProbeIDs, resolverIPs)
+	var measurementIDs []int
+	startTime := time.Now().Add(time.Duration(time.Second * 30))
+	startTime = startTime.Round(time.Minute * 5).Add(time.Minute * 5)
+	// endTime := startTime.Add(time.Minute * 5)
+	measurementsPerDomain := len(resolverIPs) * 2
+	domainsAtOnce := MAX_MEASUREMENTS / measurementsPerDomain
+	batches := batchDomains(queryDomains, domainsAtOnce)
+	infoLogger.Printf(
+		"To keep below %d measurements at once, we batch our domain queries. "+
+			" We will query %d domains at once.\n",
+		MAX_MEASUREMENTS,
+		domainsAtOnce,
+	)
+	for _, batch := range batches {
+		infoLogger.Printf("Scheduling experiment for %v, will start at %s\n", batch, startTime.String())
+		ids, err := experiment.LookupAtlas(batch, *apiKey, nProbeIDs, resolverIPs, startTime)
+		if err != nil {
+			errorLogger.Printf("Got an error creating experiment\n")
+		}
+		measurementIDs = append(measurementIDs, ids...)
+		startTime = startTime.Add(time.Minute * 10)
+		// endTime = startTime.Add(time.Minute * 5)
+	}
 	currentTime := time.Now()
 	timeStr := fmt.Sprintf(
 		"%d-%02d-%02d::%02d:%02d:%02d",
@@ -208,5 +262,5 @@ func main() {
 		currentTime.Second(),
 	)
 
-	saveIds(measurementIDs, timeStr)
+	saveIds(measurementIDs, *apiKey, timeStr)
 }

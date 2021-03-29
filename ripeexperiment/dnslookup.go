@@ -86,7 +86,10 @@ func makeDNSDefinitions(queries, targets []string) []atlas.Definition {
 
 // LookupAtlas uses apiKey to do DNS (A and AAAA) lookups for domains from
 // probeIds
-func LookupAtlas(queries []string, apiKey string, probeIds []string, targets []string, startTime, endTime time.Time) ([]int, error) {
+func LookupAtlas(queries []string, apiKey string, probeIds []string, targets []string, startTime time.Time) ([]int, error) {
+	if len(apiKey) <= 0 {
+		errorLogger.Fatalf("need to provide an API key\n")
+	}
 	config := atlas.Config{
 		APIKey: apiKey,
 	}
@@ -103,7 +106,6 @@ func LookupAtlas(queries []string, apiKey string, probeIds []string, targets []s
 		{Requested: len(probeIds), Type: "probes", Value: probesString},
 	}
 	dnsRequest.StartTime = int(startTime.Unix())
-	dnsRequest.StopTime = int(endTime.Unix())
 
 	resp, err := client.DNS(dnsRequest)
 	if err != nil {
@@ -231,7 +233,7 @@ func LookupCSV(csvPath, outPath string) {
 
 	d := <-done
 
-	if d == true {
+	if d {
 		infoLogger.Printf("Wrote to %s successfully", outPath)
 	} else {
 		infoLogger.Println("Failed at writing to file")
