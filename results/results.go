@@ -63,6 +63,7 @@ type ProbeResult struct {
 }
 
 type QueryResult struct {
-	ResolverIP string              `json:"resolver_ip,omitempty"`
-	Queries    map[string][]string `json:"queries,omitempty"`
+	ResolverIP   string              `json:"resolver_ip,omitempty"`
+	ResolverType string              `json:"resolver_type,omitempty"`
+	Queries      map[string][]string `json:"queries,omitempty"`
 }

@@ -20,6 +20,7 @@ import (
 var dataPrefix string
 var infoLogger *log.Logger
 var errorLogger *log.Logger
+var msmidToMetadata map[int][]string
 
 type IDtoResults map[string]results.ProbeResult
 
@@ -63,16 +64,6 @@ func parseABuf(abuf string) map[string][]string {
 	return resMap
 }
 
-func getDetails(measResult results.MeasurementResult) results.WhiteboardResult {
-	var det results.WhiteboardResult
-	det.ProbeID = measResult.PrbID
-	det.ProbeIP = measResult.From
-	det.ResolverIP = measResult.DestAddr
-	det.Queries = parseABuf(measResult.Result.Abuf)
-
-	return det
-}
-
 func writeDetails(data IDtoResults, firstId, secondId string) {
 	fName := fmt.Sprintf("%s/Whiteboard_results%s-%s.json", dataPrefix, firstId, secondId)
 	file, err := os.Create(fName)
@@ -81,16 +72,20 @@ func writeDetails(data IDtoResults, firstId, secondId string) {
 	}
 	defer file.Close()
 
+	infoLogger.Printf("Writing bytes to %s\n", fName)
 	file.WriteString("[")
+	counter := 0
 	for _, v := range data {
 		detailsBytes, err := json.Marshal(&v)
 		if err != nil {
 			errorLogger.Fatalf("Error marshaling data: %v\n", err)
 		}
 
-		infoLogger.Printf("Writing bytes to %s\n", fName)
 		file.Write(detailsBytes)
-		file.WriteString("\n")
+		if counter != len(data)-1 {
+			file.WriteString(",")
+		}
+		counter++
 	}
 	file.WriteString("]\n")
 
@@ -128,23 +123,33 @@ func addToQueryResult(qrs []results.QueryResult, newQR results.QueryResult) []re
 }
 
 func getFailedMeasurementData(id int) (string, string) {
-	infoLogger.Printf("Measurement %d failed, looking up necessary info\n", id)
-	config := atlas.Config{}
-	client, err := atlas.NewClient(config)
-	if err != nil {
-		errorLogger.Fatalf("Error creating atlas client, err: %v\n", err)
+	var nAs, domain string
+	if _, ok := msmidToMetadata[id]; !ok {
+		infoLogger.Printf("Measurement %d had a failed query, looking up necessary info\n", id)
+		config := atlas.Config{}
+		client, err := atlas.NewClient(config)
+		if err != nil {
+			errorLogger.Fatalf("Error creating atlas client, err: %v\n", err)
+		}
+
+		resp, err := client.GetMeasurement(id)
+		if err != nil {
+			errorLogger.Printf("Error getting measurement %d, continuing", id)
+			return "", ""
+		}
+		split := strings.Split(resp.Description, " ")
+		nAs = split[1]
+		domain = split[len(split)-1]
+		msmidToMetadata[id] = []string{nAs, domain}
+	} else {
+		nAs = msmidToMetadata[id][0]
+		domain = msmidToMetadata[id][1]
 	}
 
-	resp, err := client.GetMeasurement(id)
-	if err != nil {
-		errorLogger.Printf("Error getting measurement %d, continuing", id)
-	}
-	split := strings.Split(resp.Description, " ")
-
-	return split[1], split[len(split)-1]
+	return nAs, domain
 }
 
-func addToResult(currResult results.ProbeResult, newResults results.MeasurementResult) results.ProbeResult {
+func addToResult(currResult results.ProbeResult, newResults results.MeasurementResult, resolverMap map[string]string) results.ProbeResult {
 	if newResults.AF == 4 && currResult.V4Addr != newResults.From {
 		currResult.V4Addr = newResults.From
 	} else if newResults.AF == 6 && currResult.V6Addr != newResults.From {
@@ -153,21 +158,31 @@ func addToResult(currResult results.ProbeResult, newResults results.MeasurementR
 
 	var queryRes results.QueryResult
 	queryRes.ResolverIP = newResults.DestAddr
+	queryRes.ResolverType = resolverMap[newResults.DestAddr]
 	if len(newResults.Error) > 0 {
 		numAs, domain := getFailedMeasurementData(newResults.MsmID)
 		queries := make(map[string][]string)
-		queries[domain] = append(queries[domain], "")
+		errorString := ""
+		for k, v := range newResults.Error {
+			if len(errorString) > 0 {
+				errorString += ", "
+			}
+			errorString += fmt.Sprintf("%s: %v", k, v)
+		}
+		queries[domain] = append(queries[domain], errorString)
 		queryRes.Queries = queries
-		if newResults.AF == 4 && len(numAs) == 1 {
+		if strings.Contains(newResults.From, ".") && len(numAs) == 1 {
 			currResult.V4ToV4 = addToQueryResult(currResult.V4ToV4, queryRes)
-		} else if newResults.AF == 4 && len(numAs) == 4 {
+		} else if strings.Contains(newResults.From, ".") && len(numAs) == 4 {
 			currResult.V4ToV6 = addToQueryResult(currResult.V4ToV6, queryRes)
-		} else if newResults.AF == 6 && len(numAs) == 1 {
+		} else if strings.Contains(newResults.From, ":") && len(numAs) == 1 {
 			currResult.V6ToV4 = addToQueryResult(currResult.V6ToV4, queryRes)
-		} else if newResults.AF == 6 && len(numAs) == 4 {
+		} else if strings.Contains(newResults.From, ":") && len(numAs) == 4 {
 			currResult.V6ToV6 = addToQueryResult(currResult.V6ToV6, queryRes)
 		} else {
 			errorLogger.Printf("Error, should only have 4 cases here...")
+			errorLogger.Printf("newResults.AF = %d, len(numAs) = %d\n", newResults.AF, len(numAs))
+			errorLogger.Printf("error: %v\n", newResults.Error)
 		}
 
 	} else {
@@ -178,16 +193,16 @@ func addToResult(currResult results.ProbeResult, newResults results.MeasurementR
 				errorLogger.Printf("had more than one result, not currently handled, %v\n", v)
 				continue
 			}
-			if newResults.AF == 4 && strings.Index(v[0], ".") != -1 {
+			if newResults.AF == 4 && strings.Contains(v[0], ".") {
 				currResult.V4ToV4 = addToQueryResult(currResult.V4ToV4, queryRes)
 				break
-			} else if newResults.AF == 4 && strings.Index(v[0], ":") != -1 {
+			} else if newResults.AF == 4 && strings.Contains(v[0], ":") {
 				currResult.V4ToV6 = addToQueryResult(currResult.V4ToV6, queryRes)
 				break
-			} else if newResults.AF == 6 && strings.Index(v[0], ".") != -1 {
+			} else if newResults.AF == 6 && strings.Contains(v[0], ".") {
 				currResult.V6ToV4 = addToQueryResult(currResult.V6ToV4, queryRes)
 				break
-			} else if newResults.AF == 6 && strings.Index(v[0], ":") != -1 {
+			} else if newResults.AF == 6 && strings.Contains(v[0], ":") {
 				currResult.V6ToV6 = addToQueryResult(currResult.V6ToV6, queryRes)
 				break
 			} else {
@@ -200,34 +215,62 @@ func addToResult(currResult results.ProbeResult, newResults results.MeasurementR
 	return currResult
 }
 
-func updateResults(currResults IDtoResults, id string) IDtoResults {
+func updateResults(currResults IDtoResults, id string, resolverMap map[string]string) IDtoResults {
 	measBytes := getBytesByID(id)
 	var measResults []results.MeasurementResult
 	err := json.Unmarshal(measBytes, &measResults)
 	if err != nil {
 		errorLogger.Fatalf("Error unmarshalling: %v\n", err)
 	}
-	if len(measResults) > 1 {
-		errorLogger.Fatalf("more than one measurement results, look at this id: %s\n", id)
-	}
-	// measDetails := getDetails(measResults[0])
-	// infoLogger.Printf("Measurement %s: %+v\n", id, measResults[0])
-	strID := fmt.Sprintf("%d", measResults[0].PrbID)
-	if i, ok := currResults[strID]; ok {
-		currResults[strID] = addToResult(i, measResults[0])
-	} else {
-		var tmp results.ProbeResult
-		tmp.ProbeID = measResults[0].PrbID
-		currResults[strID] = addToResult(tmp, measResults[0])
+	for _, indivResult := range measResults {
+		strID := fmt.Sprintf("%d", indivResult.PrbID)
+		if i, ok := currResults[strID]; ok {
+			currResults[strID] = addToResult(i, indivResult, resolverMap)
+		} else {
+			var tmp results.ProbeResult
+			tmp.ProbeID = indivResult.PrbID
+			currResults[strID] = addToResult(tmp, indivResult, resolverMap)
+		}
 	}
 
 	return currResults
 }
 
+func getListofStrings(path string) []string {
+	var ret []string
+	if len(path) <= 0 {
+		errorLogger.Fatalf("Must provide path to resolver IPs, use -r")
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		errorLogger.Fatalf("Error opening file: %s, %v\n", path, err)
+	}
+
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		ret = append(ret, scanner.Text())
+	}
+
+	return ret
+}
+
+func getResolvers(path string) map[string]string {
+	ret := make(map[string]string)
+	fullLines := getListofStrings(path)
+	for _, line := range fullLines {
+		split := strings.Split(line, " ")
+		ret[split[0]] = split[1]
+	}
+
+	return ret
+}
+
 func main() {
 	dataPrefix = "../../data"
-	// measID := flag.Int("id", 0, "Measurement Id of results to parse, one at a time")
 	measIDsFile := flag.String("m", "", "File containing all measurement IDs")
+	resolverFile := flag.String("r", "", "Path to file containing resolvers")
 	flag.Parse()
 	infoLogger = log.New(
 		os.Stderr,
@@ -242,10 +285,12 @@ func main() {
 
 	ids := getMeasIDs(*measIDsFile)
 	// fmt.Printf("ids: %v\n", ids)
+	resolverMap := getResolvers(*resolverFile)
 	fullData := make(IDtoResults)
+	msmidToMetadata = make(map[int][]string)
 	for _, id := range ids {
-		fullData = updateResults(fullData, id)
+		fullData = updateResults(fullData, id, resolverMap)
 	}
-	fmt.Printf("%+v\n", fullData)
+	// fmt.Printf("%+v\n", fullData)
 	writeDetails(fullData, ids[0], ids[len(ids)-1])
 }
