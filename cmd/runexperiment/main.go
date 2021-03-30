@@ -66,7 +66,7 @@ func writeProbes(probes []atlas.Probe, countryCode string) {
 	for _, probe := range probes {
 		miniProbes = append(miniProbes, fillIn(probe))
 	}
-	jsonMini, err := json.MarshalIndent(miniProbes, "", "\t")
+	jsonMini, _ := json.MarshalIndent(miniProbes, "", "\t")
 	probeF.Write(jsonMini)
 	probeF.WriteString("\n")
 
@@ -291,7 +291,13 @@ func atlasExperiment(domainFile, apiKey, probeFile, timeStr string) {
 
 	infoLogger.Printf("Domains: %v, probes: %v\n", domainList, probeIds)
 
-	measurementIds := experiment.LookupAtlas(domainList, apiKey, probeIds, []string{})
+	startTime := time.Now().Add(time.Duration(time.Second * 30))
+	startTime = startTime.Round(time.Minute * 5).Add(time.Minute * 5)
+	measurementIds, err := experiment.LookupAtlas(domainList, apiKey, probeIds, []string{}, startTime)
+	if err != nil {
+		errorLogger.Fatalf("Error running experiment: %v\n", err)
+	}
+	infoLogger.Printf("Experiment scheduled it will run at %s\n", startTime.String())
 
 	saveIds(measurementIds, timeStr)
 }
@@ -304,6 +310,11 @@ func saveIds(ids []int, timeStr string) {
 			err,
 		)
 	}
+	defer idFile.Close()
+
+	infoLogger.Printf("Saving measurement IDs to %s\n", idFile.Name())
+
+	infoLogger.Printf("To retrieve results run fetchMeasurementResults in main directory\n")
 
 	for _, id := range ids {
 		idFile.WriteString(fmt.Sprintf("%d\n", id))
@@ -356,7 +367,7 @@ func main() {
 	intersectSize := flag.Int(
 		"intersectsize",
 		50,
-		"Desired size of the intersection, defaults to 10",
+		"Desired size of the intersection",
 	)
 	noAddExtraDomainsFlag := flag.Bool(
 		"noExtraDomains",
@@ -418,6 +429,10 @@ func main() {
 		timeStr,
 	)
 	probeFile := fmt.Sprintf("%s/%s_probes.json", dataFilePrefix, *countryCode)
+	if !*noProbeFlag {
+		infoLogger.Printf("Gathering live probes from %s\n", *countryCode)
+		getProbes(*countryCode)
+	}
 
 	if len(*setDomainsFile) != 0 {
 		datToCSV(
@@ -425,11 +440,6 @@ func main() {
 			intersectionFile,
 		)
 	} else {
-		if !*noProbeFlag {
-			infoLogger.Printf("Gathering live probes from %s\n", *countryCode)
-			getProbes(*countryCode)
-		}
-
 		if !*noIntersectFlag {
 			intersectCSVs(
 				trancoList,
