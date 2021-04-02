@@ -109,7 +109,7 @@ func getProbeIDs(path, countryCode string, num int) []string {
 	if len(path) > 0 {
 		ret = getNIDs(
 			num,
-			fmt.Sprintf("%s/probes_not_%s.dat", dataPrefix, countryCode),
+			path,
 		)
 	} else {
 		nProbes := getNProbesNotCountry(num)
