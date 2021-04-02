@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oschwald/geoip2-golang"
@@ -80,7 +81,7 @@ func removeNonCountryIPs(cc string, ipMap map[string]string, dbPath string) {
 	}
 	defer db.Close()
 
-	for k, _ := range ipMap {
+	for k := range ipMap {
 		ip := net.ParseIP(k)
 		record, err := db.Country(ip)
 		if err != nil {
@@ -106,63 +107,73 @@ func writeData(ipMap map[string]string, outPath string) {
 	}
 }
 
-func checkIPs(v6, v4 string) bool {
+func checkIPs(v6, v4 string, successChan chan<- string) {
 	r := &net.Resolver{
-		PreferGo: false,
+		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 			d := net.Dialer{
 				Timeout: time.Millisecond * time.Duration(1000),
 			}
-			return d.DialContext(ctx, network, fmt.Sprintf("%s:53", v4))
+			return d.DialContext(ctx, network, net.JoinHostPort(v4, "53"))
 		},
 	}
 	ip, err := r.LookupHost(context.Background(), "www.colorado.edu")
 	if err != nil {
-		errorLogger.Printf("error from lookup: %s, %v\n", v4, err)
-		return false
+		errorLogger.Printf("%s non-valid resolver\n", v4)
+		return
 	}
 	v6R := &net.Resolver{
-		PreferGo: false,
+		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 			d := net.Dialer{
 				Timeout: time.Millisecond * time.Duration(1000),
 			}
-			return d.DialContext(ctx, network, fmt.Sprintf("%s", v6))
+			return d.DialContext(ctx, network, net.JoinHostPort(v6, "53"))
 		},
 	}
 	v6Ip, err := v6R.LookupHost(context.Background(), "www.colorado.edu")
 	if err != nil {
-		errorLogger.Printf("error from lookup: %s, %v\n", v6, err)
-		return false
+		errorLogger.Printf("%s non-valid resolver\n", v6)
+		return
 	}
 
 	if len(ip) > 0 && len(v6Ip) > 0 {
-		return true
+		successChan <- fmt.Sprintf("%s,%s", v6, v4)
 	}
-
-	return false
 }
 
 func addResolvers(orPath string, ipMap map[string]string, cc string, num int) {
+	successChan := make(chan string)
 	orFile, err := os.Open(orPath)
 	if err != nil {
 		errorLogger.Printf("error opening file: %s, %v\n", orPath, err)
 		return
 	}
 	defer orFile.Close()
+	wg := sync.WaitGroup{}
+	wg.Add(num)
 
 	resolverDom := fmt.Sprintf("%s_Resolver", cc)
+	go func() {
+		for fullString := range successChan {
+			split := strings.Split(fullString, ",")
+			ipMap[split[0]] = resolverDom
+			ipMap[split[1]] = resolverDom
+			infoLogger.Printf("Added resolver IPs, need %d more pairs\n", num)
+			num--
+			wg.Done()
+		}
+	}()
+
 	orScanner := bufio.NewScanner(orFile)
 	for orScanner.Scan() && num > 0 {
 		split := strings.Split(orScanner.Text(), "  ")
 		if split[2] == cc {
-			if checkIPs(split[0], split[1]) {
-				ipMap[split[0]] = resolverDom
-				ipMap[split[1]] = resolverDom
-				num--
-			}
+			go checkIPs(split[0], split[1], successChan)
 		}
 	}
+	wg.Wait()
+	close(successChan)
 }
 
 func main() {
