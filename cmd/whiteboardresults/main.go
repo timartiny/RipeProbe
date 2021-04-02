@@ -287,6 +287,8 @@ func main() {
 	// fmt.Printf("ids: %v\n", ids)
 	resolverMap := getResolvers(*resolverFile)
 	fullData := make(IDtoResults)
+	// change dataPrefix to include folder for measurements
+	dataPrefix += fmt.Sprintf("/%s-%s", ids[0], ids[len(ids)-1])
 	msmidToMetadata = make(map[int][]string)
 	for _, id := range ids {
 		fullData = updateResults(fullData, id, resolverMap)
