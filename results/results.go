@@ -9,7 +9,7 @@ type Result struct {
 	ANcount int     `json:"ANCOUNT,omitempty"`
 	QDcount int     `json:"QDCOUNT,omitempty"`
 	NScount int     `json:"NSCOUNT,omitempty"`
-	ARcount int     `json:"ARCOUNT,omitmpty"`
+	ARcount int     `json:"ARCOUNT,omitempty"`
 }
 
 //ResultSet is the wrapper for results, store metadata with result
