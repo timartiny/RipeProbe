@@ -189,10 +189,10 @@ func addToResult(currResult results.ProbeResult, newResults results.MeasurementR
 		queries := parseABuf(newResults.Result.Abuf)
 		queryRes.Queries = queries
 		for _, v := range queries {
-			if len(v) > 1 {
-				errorLogger.Printf("had more than one result, not currently handled, %v\n", v)
-				continue
-			}
+			// if len(v) > 1 {
+			// 	errorLogger.Printf("had more than one result, not currently handled, %v\n", v)
+			// 	continue
+			// }
 			if newResults.AF == 4 && strings.Contains(v[0], ".") {
 				currResult.V4ToV4 = addToQueryResult(currResult.V4ToV4, queryRes)
 				break
