@@ -187,7 +187,7 @@ func getQueryStats(fullResults Results) QueryStats {
 
 	pr := fullResults[0]
 	queries := pr.V4ToV4[0].Queries
-	for k, _ := range queries {
+	for k := range queries {
 		ret = append(ret, k)
 	}
 
