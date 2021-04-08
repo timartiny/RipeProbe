@@ -21,6 +21,7 @@ var dataPrefix string
 var infoLogger *log.Logger
 var errorLogger *log.Logger
 var msmidToMetadata map[int][]string
+var badProbes map[int]bool
 
 type IDtoResults map[string]results.ProbeResult
 
@@ -38,8 +39,9 @@ func getBytesByID(id string) []byte {
 	return ret
 }
 
-func parseABuf(abuf string) map[string][]string {
+func parseABuf(abuf string) (map[string][]string, int) {
 	resMap := make(map[string][]string)
+	var numAs int
 	resBytes, err := base64.StdEncoding.DecodeString(abuf)
 	if err != nil {
 		errorLogger.Fatalf("Error decoding base64 str: %s, %v\n", abuf, err)
@@ -49,22 +51,35 @@ func parseABuf(abuf string) map[string][]string {
 	err = dns.DecodeFromBytes(resBytes, gopacket.NilDecodeFeedback)
 	if err != nil {
 		if fmt.Sprintf("%v", err) == "DNS packet too short" {
-			return resMap
+			errorLogger.Printf("DNS Packet was too short\n")
+			return resMap, numAs
 		} else {
 			errorLogger.Fatalf("Failed to decode dns packet: %v\n", err)
 		}
 	}
+	q := dns.Questions[0]
+	numAs = len(q.Type.String())
 	for _, answer := range dns.Answers {
 		// infoLogger.Printf("%s: %v\n", answer.Name, answer.IP)
 		resMap[string(answer.Name)] = append(
 			resMap[string(answer.Name)], answer.IP.String(),
 		)
 	}
+	if dns.ANCount == 0 {
+		for _, auth := range dns.Authorities {
+			resMap[string(q.Name)] = append(
+				resMap[string(q.Name)], string(auth.NS),
+			)
+		}
+		if dns.NSCount == 0 {
+			resMap[string(q.Name)] = []string{"No Answer or Authority Given"}
+		}
+	}
 
-	return resMap
+	return resMap, numAs
 }
 
-func writeDetails(data IDtoResults, firstId, secondId string) {
+func writeDetails(data []results.ProbeResult, firstId, secondId string) {
 	fName := fmt.Sprintf("%s/Whiteboard_results%s-%s.json", dataPrefix, firstId, secondId)
 	file, err := os.Create(fName)
 	if err != nil {
@@ -73,21 +88,27 @@ func writeDetails(data IDtoResults, firstId, secondId string) {
 	defer file.Close()
 
 	infoLogger.Printf("Writing bytes to %s\n", fName)
-	file.WriteString("[")
-	counter := 0
-	for _, v := range data {
-		detailsBytes, err := json.Marshal(&v)
-		if err != nil {
-			errorLogger.Fatalf("Error marshaling data: %v\n", err)
-		}
-
-		file.Write(detailsBytes)
-		if counter != len(data)-1 {
-			file.WriteString(",")
-		}
-		counter++
+	// file.WriteString("[")
+	// counter := 0
+	detailsBytes, err := json.Marshal(&data)
+	if err != nil {
+		errorLogger.Fatalf("Error marshaling data: %v\n", err)
 	}
-	file.WriteString("]\n")
+
+	file.Write(detailsBytes)
+	// for _, v := range data {
+	// 	detailsBytes, err := json.Marshal(&v)
+	// 	if err != nil {
+	// 		errorLogger.Fatalf("Error marshaling data: %v\n", err)
+	// 	}
+
+	// 	file.Write(detailsBytes)
+	// 	if counter != len(data)-1 {
+	// 		file.WriteString(",")
+	// 	}
+	// 	counter++
+	// }
+	// file.WriteString("]\n")
 
 }
 
@@ -150,6 +171,15 @@ func getFailedMeasurementData(id int) (string, string) {
 }
 
 func addToResult(currResult results.ProbeResult, newResults results.MeasurementResult, resolverMap map[string]string) results.ProbeResult {
+	if badProbes[newResults.PrbID] {
+		return currResult
+	}
+	if len(newResults.DestAddr) == 0 {
+		errorLogger.Printf("Blank DestAddr, msmID: %d, prbID: %d\n", newResults.MsmID, newResults.PrbID)
+		badProbes[newResults.PrbID] = true
+		errorLogger.Printf("%d is now a 'bad probe'\n", newResults.PrbID)
+		return currResult
+	}
 	if newResults.AF == 4 && currResult.V4Addr != newResults.From {
 		currResult.V4Addr = newResults.From
 	} else if newResults.AF == 6 && currResult.V6Addr != newResults.From {
@@ -186,29 +216,25 @@ func addToResult(currResult results.ProbeResult, newResults results.MeasurementR
 		}
 
 	} else {
-		queries := parseABuf(newResults.Result.Abuf)
+		queries, numAs := parseABuf(newResults.Result.Abuf)
+		if len(queries) == 0 {
+			errorLogger.Printf(
+				"Got no queries from Probe: %d on Measurement: %d\n",
+				newResults.PrbID,
+				newResults.MsmID,
+			)
+		}
 		queryRes.Queries = queries
-		for _, v := range queries {
-			// if len(v) > 1 {
-			// 	errorLogger.Printf("had more than one result, not currently handled, %v\n", v)
-			// 	continue
-			// }
-			if newResults.AF == 4 && strings.Contains(v[0], ".") {
-				currResult.V4ToV4 = addToQueryResult(currResult.V4ToV4, queryRes)
-				break
-			} else if newResults.AF == 4 && strings.Contains(v[0], ":") {
-				currResult.V4ToV6 = addToQueryResult(currResult.V4ToV6, queryRes)
-				break
-			} else if newResults.AF == 6 && strings.Contains(v[0], ".") {
-				currResult.V6ToV4 = addToQueryResult(currResult.V6ToV4, queryRes)
-				break
-			} else if newResults.AF == 6 && strings.Contains(v[0], ":") {
-				currResult.V6ToV6 = addToQueryResult(currResult.V6ToV6, queryRes)
-				break
-			} else {
-				errorLogger.Printf("Error, should only have 4 cases here...")
-				break
-			}
+		if newResults.AF == 4 && numAs == 1 {
+			currResult.V4ToV4 = addToQueryResult(currResult.V4ToV4, queryRes)
+		} else if newResults.AF == 4 && numAs == 4 {
+			currResult.V4ToV6 = addToQueryResult(currResult.V4ToV6, queryRes)
+		} else if newResults.AF == 6 && numAs == 1 {
+			currResult.V6ToV4 = addToQueryResult(currResult.V6ToV4, queryRes)
+		} else if newResults.AF == 6 && numAs == 4 {
+			currResult.V6ToV6 = addToQueryResult(currResult.V6ToV6, queryRes)
+		} else {
+			errorLogger.Printf("Error, should only have 4 cases here...")
 		}
 	}
 
@@ -267,6 +293,18 @@ func getResolvers(path string) map[string]string {
 	return ret
 }
 
+func trimBadProbes(fullData IDtoResults) []results.ProbeResult {
+	var ret []results.ProbeResult
+	for _, pr := range fullData {
+		if badProbes[pr.ProbeID] {
+			continue
+		}
+		ret = append(ret, pr)
+	}
+
+	return ret
+}
+
 func main() {
 	dataPrefix = "../../data"
 	measIDsFile := flag.String("m", "", "File containing all measurement IDs")
@@ -283,6 +321,7 @@ func main() {
 		log.Ldate|log.Ltime|log.Lshortfile,
 	)
 
+	badProbes = make(map[int]bool)
 	ids := getMeasIDs(*measIDsFile)
 	// fmt.Printf("ids: %v\n", ids)
 	resolverMap := getResolvers(*resolverFile)
@@ -293,6 +332,6 @@ func main() {
 	for _, id := range ids {
 		fullData = updateResults(fullData, id, resolverMap)
 	}
-	// fmt.Printf("%+v\n", fullData)
-	writeDetails(fullData, ids[0], ids[len(ids)-1])
+	printData := trimBadProbes(fullData)
+	writeDetails(printData, ids[0], ids[len(ids)-1])
 }
