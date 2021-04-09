@@ -337,6 +337,9 @@ func printSpecificResults(stats SpecificResults) {
 
 func printStats(genChan <-chan GenStats,
 	v4AChan <-chan SpecificResults,
+	v4AAAAChan <-chan SpecificResults,
+	v6AChan <-chan SpecificResults,
+	v6AAAAChan <-chan SpecificResults,
 	wg *sync.WaitGroup,
 	printIPs bool,
 ) {
@@ -347,6 +350,21 @@ func printStats(genChan <-chan GenStats,
 	v4AStats := <-v4AChan
 	fmt.Printf("When a V4 address was asked to resolve a domain for an A record:\n")
 	printSpecificResults(v4AStats)
+	wg.Done()
+
+	v4AAAAStats := <-v4AAAAChan
+	fmt.Printf("When a V4 address was asked to resolve a domain for an AAAA record:\n")
+	printSpecificResults(v4AAAAStats)
+	wg.Done()
+
+	v6AStats := <-v6AChan
+	fmt.Printf("When a V6 address was asked to resolve a domain for an A record:\n")
+	printSpecificResults(v6AStats)
+	wg.Done()
+
+	v6AAAAStats := <-v6AAAAChan
+	fmt.Printf("When a V6 address was asked to resolve a domain for an AAAA record:\n")
+	printSpecificResults(v6AAAAStats)
 	wg.Done()
 }
 
@@ -407,6 +425,105 @@ func getSpecificResponse(strs []string, prID int, resIP string) SpecificResponse
 	return sr
 }
 
+func v6AAAAStats(fR Results, v6AAAAChan chan<- SpecificResults) {
+	toChan := make(SpecificResults)
+
+	for _, pr := range fR {
+		for _, qr := range pr.V6ToV6 {
+			for dom, resps := range qr.Queries {
+				if _, ok := toChan[dom]; !ok {
+					toChan[dom] = SpecificDomain{
+						Open:   SpecificResponse{},
+						Domain: SpecificResponse{},
+					}
+				}
+				if strings.Contains(qr.ResolverType, "_Resolver") {
+					resp := getSpecificResponse(resps, pr.ProbeID, qr.ResolverIP)
+					toChan[dom] = SpecificDomain{
+						Open:   update(toChan[dom].Open, resp),
+						Domain: toChan[dom].Domain,
+					}
+				} else {
+					resp := getSpecificResponse(resps, pr.ProbeID, qr.ResolverIP)
+					toChan[dom] = SpecificDomain{
+						Open:   toChan[dom].Open,
+						Domain: update(toChan[dom].Domain, resp),
+					}
+				}
+			}
+
+		}
+	}
+
+	v6AAAAChan <- toChan
+}
+
+func v4AAAAStats(fR Results, v4AAAAChan chan<- SpecificResults) {
+	toChan := make(SpecificResults)
+
+	for _, pr := range fR {
+		for _, qr := range pr.V4ToV6 {
+			for dom, resps := range qr.Queries {
+				if _, ok := toChan[dom]; !ok {
+					toChan[dom] = SpecificDomain{
+						Open:   SpecificResponse{},
+						Domain: SpecificResponse{},
+					}
+				}
+				if strings.Contains(qr.ResolverType, "_Resolver") {
+					resp := getSpecificResponse(resps, pr.ProbeID, qr.ResolverIP)
+					toChan[dom] = SpecificDomain{
+						Open:   update(toChan[dom].Open, resp),
+						Domain: toChan[dom].Domain,
+					}
+				} else {
+					resp := getSpecificResponse(resps, pr.ProbeID, qr.ResolverIP)
+					toChan[dom] = SpecificDomain{
+						Open:   toChan[dom].Open,
+						Domain: update(toChan[dom].Domain, resp),
+					}
+				}
+			}
+
+		}
+	}
+
+	v4AAAAChan <- toChan
+}
+
+func v6AStats(fR Results, v6AChan chan<- SpecificResults) {
+	toChan := make(SpecificResults)
+
+	for _, pr := range fR {
+		for _, qr := range pr.V6ToV4 {
+			for dom, resps := range qr.Queries {
+				if _, ok := toChan[dom]; !ok {
+					toChan[dom] = SpecificDomain{
+						Open:   SpecificResponse{},
+						Domain: SpecificResponse{},
+					}
+				}
+				if strings.Contains(qr.ResolverType, "_Resolver") {
+					resp := getSpecificResponse(resps, pr.ProbeID, qr.ResolverIP)
+					toChan[dom] = SpecificDomain{
+						Open:   update(toChan[dom].Open, resp),
+						Domain: toChan[dom].Domain,
+					}
+				} else {
+					resp := getSpecificResponse(resps, pr.ProbeID, qr.ResolverIP)
+					toChan[dom] = SpecificDomain{
+						Open:   toChan[dom].Open,
+						Domain: update(toChan[dom].Domain, resp),
+					}
+				}
+			}
+
+		}
+	}
+
+	v6AChan <- toChan
+}
+
 func v4AStats(fR Results, v4AChan chan<- SpecificResults) {
 	toChan := make(SpecificResults)
 
@@ -457,15 +574,26 @@ func main() {
 	var wg sync.WaitGroup
 	genChan := make(chan GenStats)
 	v4AChan := make(chan SpecificResults)
+	v4AAAAChan := make(chan SpecificResults)
+	v6AChan := make(chan SpecificResults)
+	v6AAAAChan := make(chan SpecificResults)
 	fullResults := getStruct(*resultsPath)
 
-	go printStats(genChan, v4AChan, &wg, *printIPs)
+	go printStats(
+		genChan, v4AChan, v4AAAAChan, v6AChan, v6AAAAChan, &wg, *printIPs,
+	)
 
 	wg.Add(1)
 	go generalStats(fullResults, genChan)
 
 	wg.Add(1)
 	go v4AStats(fullResults, v4AChan)
+	wg.Add(1)
+	go v4AAAAStats(fullResults, v4AAAAChan)
+	wg.Add(1)
+	go v6AStats(fullResults, v6AChan)
+	wg.Add(1)
+	go v6AAAAStats(fullResults, v6AAAAChan)
 
 	wg.Wait()
 }
