@@ -106,14 +106,19 @@ func getBlocked(path string) map[string]interface{} {
 }
 
 // This function will return a popular domain that isn't blocked, or an error
-func getUnblockedDomain(popDoms []string, blockedDoms map[string]interface{}) (string, error) {
+func getUnblockedDomain(popDoms []string, blockedDoms map[string]interface{}, num int) ([]string, error) {
+	var ret []string
 	for _, dom := range popDoms {
 		if _, ok := blockedDoms[dom]; !ok {
-			return dom, nil
+			ret = append(ret, dom)
+		}
+
+		if len(ret) == num {
+			return ret, nil
 		}
 	}
 
-	return "", errors.New("failed to find a popular domain that wasn't blocked")
+	return []string{""}, errors.New("failed to find a popular domain that wasn't blocked")
 }
 
 // Will get requested number of popDoms from blockedDoms (or as many as possible)
@@ -179,10 +184,15 @@ func main() {
 		"",
 		"Path to file containing special domains, possibly blocked",
 	)
-	outputNum := flag.Int(
+	blockedNum := flag.Int(
 		"n",
-		5,
-		"Number of domains to print, one will not be 'blocked'",
+		4,
+		"Number of blocked domains to print",
+	)
+	unblockedNum := flag.Int(
+		"u",
+		1,
+		"Number of unblocked domains to print",
 	)
 
 	flag.Parse()
@@ -190,10 +200,10 @@ func main() {
 	blockedDoms := getBlocked(*blockedPath)
 	var final []string
 	skip := 0
-	needUnblocked := true
-	neededBlocked := *outputNum - 1
+	neededUnblocked := *unblockedNum
+	neededBlocked := *blockedNum
 
-	for needUnblocked || neededBlocked > 0 {
+	for neededUnblocked > 0 || neededBlocked > 0 {
 		infoLogger.Printf(
 			"Grabbing %d popular domains, numbers %d-%d from %s\n",
 			AT_A_TIME,
@@ -202,13 +212,13 @@ func main() {
 			*popularityPath,
 		)
 		nPopDoms := getNPopular(*popularityPath, AT_A_TIME, skip)
-		if needUnblocked {
-			infoLogger.Printf("Looking for a popular unblocked domain\n")
-			dom, err := getUnblockedDomain(nPopDoms, blockedDoms)
+		if neededUnblocked > 0 {
+			infoLogger.Printf("Looking for popular unblocked domain(s)\n")
+			doms, err := getUnblockedDomain(nPopDoms, blockedDoms, neededUnblocked)
 			if err == nil {
-				infoLogger.Printf("Found popular unblocked domain: %s\n", dom)
-				final = append(final, dom)
-				needUnblocked = false
+				infoLogger.Printf("Found popular unblocked domain(s): %s\n", doms)
+				final = append(final, doms...)
+				neededUnblocked -= len(doms)
 			}
 		}
 
