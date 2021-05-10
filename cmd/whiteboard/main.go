@@ -165,8 +165,8 @@ func getQueryDomains(path string) []string {
 	return getListofStrings(path)
 }
 
-func saveIds(ids []int, apiKey, timeStr string) {
-	idFile, err := os.Create(dataPrefix + "/Whiteboard-Ids-" + timeStr)
+func saveIds(ids []int, apiKey, timeStr, cc string) {
+	idFile, err := os.Create(fmt.Sprintf("%s/Whiteboard-Ids-%s-%s", dataPrefix, cc, timeStr))
 	if err != nil {
 		errorLogger.Fatalf(
 			"error creating file to save measurements: %v\n",
@@ -232,8 +232,8 @@ func main() {
 	startTime := time.Now().Add(time.Duration(time.Second * 30))
 	startTime = startTime.Round(time.Minute * 5).Add(time.Minute * 5)
 	// endTime := startTime.Add(time.Minute * 5)
-	measurementsPerDomain := len(resolverIPs) * 2
-	domainsAtOnce := MAX_MEASUREMENTS / measurementsPerDomain
+	// measurementsPerDomain := len(resolverIPs) * 2
+	domainsAtOnce := 1
 	batches := batchDomains(queryDomains, domainsAtOnce)
 	infoLogger.Printf(
 		"To keep below %d measurements at once, we batch our domain queries. "+
@@ -246,9 +246,10 @@ func main() {
 		ids, err := experiment.LookupAtlas(batch, *apiKey, nProbeIDs, resolverIPs, startTime)
 		if err != nil {
 			errorLogger.Printf("Got an error creating experiment\n")
+			os.Exit(1)
 		}
 		measurementIDs = append(measurementIDs, ids...)
-		startTime = startTime.Add(time.Minute * 10)
+		startTime = startTime.Add(time.Minute * 20)
 		// endTime = startTime.Add(time.Minute * 5)
 	}
 	currentTime := time.Now()
@@ -262,5 +263,5 @@ func main() {
 		currentTime.Second(),
 	)
 
-	saveIds(measurementIDs, *apiKey, timeStr)
+	saveIds(measurementIDs, *apiKey, timeStr, *countryCode)
 }
