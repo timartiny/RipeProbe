@@ -17,10 +17,10 @@ import (
 // LookupResult stores the results of a DNS lookup for a domain.
 type LookupResult struct {
 	Domain      string              `json:"domain"`
-	Rank        int                 `json:"rank"`
-	Source      string              `json:"source"`
-	LocalV4     []string            `json:"local_v4_ips"`
-	LocalV6     []string            `json:"local_v6_ips"`
+	Rank        int                 `json:"rank,omitempty"`
+	Source      string              `json:"source,omitempty"`
+	LocalV4     []string            `json:"local_v4_ips,omitempty"`
+	LocalV6     []string            `json:"local_v6_ips,omitempty"`
 	RipeResults []MeasurementResult `json:"ripe_results,omitempty"`
 }
 
@@ -55,13 +55,13 @@ func makeDNSDefinitions(queries, targets []string) []atlas.Definition {
 				Type:             "dns",
 				AF:               af,
 				IsOneoff:         true,
-				IsPublic:         false,
 				QueryClass:       "IN",
 				QueryType:        "A",
 				Target:           target,
 				QueryArgument:    domain,
 				ResolveOnProbe:   true,
 				UseProbeResolver: selfResolve,
+				SetRDBit:         true,
 			}
 			ret = append(ret, dns)
 			dns = atlas.Definition{
@@ -69,13 +69,13 @@ func makeDNSDefinitions(queries, targets []string) []atlas.Definition {
 				Type:             "dns",
 				AF:               af,
 				IsOneoff:         true,
-				IsPublic:         false,
 				QueryClass:       "IN",
 				QueryType:        "AAAA",
 				Target:           target,
 				QueryArgument:    domain,
 				ResolveOnProbe:   true,
 				UseProbeResolver: selfResolve,
+				SetRDBit:         true,
 			}
 			ret = append(ret, dns)
 		}
