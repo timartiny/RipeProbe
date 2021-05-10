@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/base64"
 	"encoding/json"
 	"flag"
@@ -135,9 +136,25 @@ func strContains(arr []string, i string) bool {
 	return false
 }
 
+func getMeasIDs(path string) []string {
+	var ret []string
+	file, err := os.Open(path)
+	if err != nil {
+		errorLogger.Fatalf("Error opening measurement Id file, %s: %v\n", path, err)
+	}
+
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		ret = append(ret, scanner.Text())
+	}
+
+	return ret
+}
+
 func main() {
 	dataPrefix = "data"
-	measID := flag.Int("id", 0, "Measurement Id of results to parse, one at a time")
+	measIDPath := flag.String("id", "", "Path to measurement IDs file")
 	jsonPath := flag.String("f", "", "Path to JSON file that has lookup domains for associated measurement ID")
 	flag.Parse()
 	infoLogger = log.New(
@@ -156,47 +173,51 @@ func main() {
 	json.Unmarshal(lookupBytes, &lookup)
 	// fmt.Printf("%+v\n", lookup)
 	lookupDomains := getDomains(lookup)
+	ids := getMeasIDs(*measIDPath)
 
-	measBytes := getJSON(fmt.Sprintf("%s/%d_results.json", dataPrefix, *measID))
-	var measResults []results.MeasurementResult
-	json.Unmarshal(measBytes, &measResults)
-	for _, res := range measResults {
-		answers := parseResult(res)
-		for _, answer := range answers {
-			for domain, ipSlice := range answer {
-				var measResult experiment.MeasurementResult
-				measIndex := -1
-				infoLogger.Printf("%s:\t%s\n", domain, ipSlice)
-				if lookupDomains[domain] > 0 {
-					if len(lookup[lookupDomains[domain]-1].RipeResults) > 0 {
-						measResult, measIndex = findResult(lookup[lookupDomains[domain]-1].RipeResults, res)
-					}
-					if measIndex == -1 {
-						if !intContains(measResult.IDs, res.MsmID) {
-							measResult.IDs = append(measResult.IDs, res.MsmID)
+	dataPrefix += fmt.Sprintf("/%s-%s", ids[0], ids[len(ids)-1])
+	for _, measID := range ids {
+		measBytes := getJSON(fmt.Sprintf("%s/%s_results.json", dataPrefix, measID))
+		var measResults []results.MeasurementResult
+		json.Unmarshal(measBytes, &measResults)
+		for _, res := range measResults {
+			answers := parseResult(res)
+			for _, answer := range answers {
+				for domain, ipSlice := range answer {
+					var measResult experiment.MeasurementResult
+					measIndex := -1
+					infoLogger.Printf("%s:\t%s\n", domain, ipSlice)
+					if lookupDomains[domain] > 0 {
+						if len(lookup[lookupDomains[domain]-1].RipeResults) > 0 {
+							measResult, measIndex = findResult(lookup[lookupDomains[domain]-1].RipeResults, res)
 						}
-						measResult.ProbeID = res.PrbID
-					}
-					for _, ip := range ipSlice {
-						if strings.Index(ip, ".") != -1 {
-							if !strContains(measResult.V4, ip) {
-								measResult.V4 = append(measResult.V4, ip)
+						if measIndex == -1 {
+							if !intContains(measResult.IDs, res.MsmID) {
+								measResult.IDs = append(measResult.IDs, res.MsmID)
 							}
-						} else if strings.Index(ip, ":") != -1 {
-							if !strContains(measResult.V6, ip) {
-								measResult.V6 = append(measResult.V6, ip)
+							measResult.ProbeID = res.PrbID
+						}
+						for _, ip := range ipSlice {
+							if strings.Contains(ip, ".") {
+								if !strContains(measResult.V4, ip) {
+									measResult.V4 = append(measResult.V4, ip)
+								}
+							} else if strings.Contains(ip, ":") {
+								if !strContains(measResult.V6, ip) {
+									measResult.V6 = append(measResult.V6, ip)
+								}
 							}
 						}
 					}
-				}
-				if len(measResult.V4) > 0 || len(measResult.V6) > 0 {
-					if measIndex == -1 {
-						lookup[lookupDomains[domain]-1].RipeResults = append(
-							lookup[lookupDomains[domain]-1].RipeResults, measResult,
-						)
-					} else {
-						lookup[lookupDomains[domain]-1].RipeResults[measIndex] =
-							measResult
+					if len(measResult.V4) > 0 || len(measResult.V6) > 0 {
+						if measIndex == -1 {
+							lookup[lookupDomains[domain]-1].RipeResults = append(
+								lookup[lookupDomains[domain]-1].RipeResults, measResult,
+							)
+						} else {
+							lookup[lookupDomains[domain]-1].RipeResults[measIndex] =
+								measResult
+						}
 					}
 				}
 			}
