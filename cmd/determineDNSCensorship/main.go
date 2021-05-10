@@ -1,17 +1,18 @@
 package main
 
 import (
+	"context"
+	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
-	"net/url"
 	"os"
-	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	results "github.com/timartiny/RipeProbe/results"
 )
@@ -42,40 +43,62 @@ func getStruct(path string) Results {
 	return res
 }
 
-func getNumProbes(r Results) int {
-	return len(r)
+func isUrl(str string) bool {
+	// this is almost certainly a bad way to do it:
+
+	return strings.ContainsAny(str, ".-")
 }
 
-type Ints []int
+type ResolverResults []*ResolverResult
 
-func (a Ints) Len() int           { return len(a) }
-func (a Ints) Less(i, j int) bool { return a[i] < a[j] }
-func (a Ints) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-
-func getProbes(r Results) Ints {
-	var ret Ints
-	for _, t := range r {
-		ret = append(ret, t.ProbeID)
-	}
-	sort.Sort(ret)
-
-	return ret
+// ResolverResult stores the ip address of a given resolver, the type of
+// resolver it is (either the string "open", or the domain name of the resolver)
+// and then a slice of domain results, how that resolver responded to
+// queries for domains
+type ResolverResult struct {
+	ResolverIP    net.IP
+	ResolverType  string
+	DomainResults []*DomainResult
 }
 
-type IPs []net.IP
-type IPPair struct {
-	V4 IPs
-	V6 IPs
-}
-type DomainToIPs map[string]IPPair
-type Resolvers struct {
-	Domains DomainToIPs
-	Open    IPPair
+// Domain Result stores the domain name that was resolved, what the actual
+// A record request results were (ips, and NSs) as well as AAAA, and whether
+// any of those results successfully load the given domain page.
+// We will require that all of the A int results add up to the number of probes
+// (same for AAAA)
+type DomainResult struct {
+	Domain            string
+	AResponse         *DNSResponse
+	ASuccessesIP      int
+	ASuccessProbes    []int
+	AFailedIP         int
+	ASuccessesNS      int
+	AFailedNS         int
+	ATimeouts         int
+	AAuthority        int
+	AAAAResponse      *DNSResponse
+	AAAASuccessesIP   int
+	AAAASuccessProbes []int
+	AAAAFailedIP      int
+	AAAASuccessesNS   int
+	AAAAFailedNS      int
+	AAAATimeouts      int
+	AAAAAuthority     int
 }
 
-func (l IPs) Contains(n net.IP) bool {
-	for _, v := range l {
-		if v.Equal(n) {
+// DNSResponse is the actual response to DNS queries, the list of IPs, Nameservers
+// or number of timeouts, and then a catch-all of other issues.
+type DNSResponse struct {
+	IPs       []net.IP
+	NSs       []string
+	Timeouts  bool
+	Authority bool
+	Others    []string
+}
+
+func strContains(arr []string, str string) bool {
+	for _, s := range arr {
+		if s == str {
 			return true
 		}
 	}
@@ -83,483 +106,451 @@ func (l IPs) Contains(n net.IP) bool {
 	return false
 }
 
-func resolverStatsFromProbe(
-	qrs []results.QueryResult,
-	dC chan<- DomainToIPs,
-	rC chan<- IPs,
+func ipContains(arr []net.IP, ip net.IP) bool {
+	for _, i := range arr {
+		if i.Equal(ip) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (dnsr *DNSResponse) Append(newDNSR *DNSResponse) *DNSResponse {
+	if dnsr == nil {
+		return newDNSR
+	}
+	if newDNSR == nil {
+		return dnsr
+	}
+	for _, ip := range newDNSR.IPs {
+		if !ipContains(dnsr.IPs, ip) {
+			dnsr.IPs = append(dnsr.IPs, ip)
+		}
+	}
+
+	for _, ns := range newDNSR.NSs {
+		if !strContains(dnsr.NSs, ns) {
+			dnsr.NSs = append(dnsr.NSs, ns)
+		}
+	}
+
+	dnsr.Timeouts = newDNSR.Timeouts || dnsr.Timeouts
+	dnsr.Authority = newDNSR.Authority || dnsr.Authority
+
+	for _, other := range newDNSR.Others {
+		if !strContains(dnsr.Others, other) {
+			dnsr.Others = append(dnsr.Others, other)
+		}
+	}
+
+	return dnsr
+}
+
+type IPStatus int
+
+const (
+	Unknown IPStatus = iota
+	Success
+	Failure
+)
+
+var quickCheckConnDetailsChan chan ConnDetails
+var quickCheckStatusChan chan IPStatus
+
+func quickIPDomainLookup() {
+	var quickLookupMap = map[string]map[string]IPStatus{} // [domain, ip] -> status
+
+	for cd := range quickCheckConnDetailsChan {
+		if cd.Status != Unknown {
+			if quickLookupMap[cd.Domain] == nil {
+				quickLookupMap[cd.Domain] = map[string]IPStatus{}
+			}
+			quickLookupMap[cd.Domain][cd.IP.String()] = cd.Status
+		} else {
+			if quickLookupMap[cd.Domain] == nil {
+				quickCheckStatusChan <- Unknown
+			} else {
+				quickCheckStatusChan <- quickLookupMap[cd.Domain][cd.IP.String()]
+			}
+		}
+	}
+}
+
+type ConnDetails struct {
+	Domain string
+	IP     net.IP
+	Status IPStatus
+}
+
+func ipChecker(connDetailsChan <-chan ConnDetails, isValidChan chan<- bool) {
+	for cd := range connDetailsChan {
+		quickCheckConnDetailsChan <- cd
+		status := <-quickCheckStatusChan
+		if status != Unknown {
+			isValidChan <- status == Success
+			continue
+		}
+		dialer := &net.Dialer{
+			Timeout: time.Second,
+		}
+		config := &tls.Config{
+			ServerName: cd.Domain,
+		}
+
+		conn, err := tls.DialWithDialer(
+			dialer, "tcp", net.JoinHostPort(cd.IP.String(), "443"), config,
+		)
+		if err != nil {
+			cd.Status = Failure
+			quickCheckConnDetailsChan <- cd
+			isValidChan <- false
+			continue
+		}
+
+		err = conn.VerifyHostname(cd.Domain)
+		toSend := err == nil
+		if toSend {
+			cd.Status = Success
+		} else {
+			cd.Status = Failure
+		}
+		quickCheckConnDetailsChan <- cd
+		isValidChan <- toSend
+	}
+
+}
+
+func ipSuccess(dnsr *DNSResponse, domain string) bool {
+	var ret bool
+
+	const numIPCheckers = 10
+	connDetailsChan := make(chan ConnDetails, len(dnsr.IPs))
+	resultsChan := make(chan bool, len(dnsr.IPs))
+
+	for i := 0; i < numIPCheckers; i++ {
+		go ipChecker(connDetailsChan, resultsChan)
+	}
+
+	for _, ip := range dnsr.IPs {
+		connDetailsChan <- ConnDetails{Domain: domain, IP: ip}
+	}
+	close(connDetailsChan)
+	for i := 0; i < len(dnsr.IPs); i++ {
+		ret = <-resultsChan
+		if ret {
+			// infoLogger.Printf("Got true, for %s!\n", domain)
+			break
+		}
+	}
+
+	return ret
+}
+
+func nsSuccess(dnsr *DNSResponse, domain string) bool {
+	var ret bool
+	if len(dnsr.NSs) == 0 {
+		return ret
+	}
+	for _, ns := range dnsr.NSs {
+		r := &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				d := net.Dialer{
+					Timeout: time.Second,
+				}
+				return d.DialContext(ctx, network, net.JoinHostPort(ns, "53"))
+			},
+		}
+		ips, err := r.LookupHost(context.Background(), domain)
+		if err != nil || len(ips) == 0 {
+			return ret
+		}
+
+		tmpDNSR := new(DNSResponse)
+		for _, ip := range ips {
+			tmpDNSR.IPs = append(tmpDNSR.IPs, net.ParseIP(ip))
+		}
+		if ipSuccess(tmpDNSR, domain) {
+			ret = true
+			break
+		}
+	}
+
+	return ret
+}
+
+func parseQueryResults(
+	qrc <-chan QueryResultsAndNumAs,
+	consolidateChan chan<- ResolverResults,
+	wg *sync.WaitGroup,
+) {
+	for qra := range qrc {
+		numAs := qra.NumAs
+		qrs := qra.QueryResults
+		var ret ResolverResults
+		for _, qr := range qrs {
+			rr := new(ResolverResult)
+			rr.ResolverIP = net.ParseIP(qr.ResolverIP)
+			if strings.Contains(qr.ResolverType, "_Resolver") {
+				rr.ResolverType = "Open Resolver"
+			} else {
+				rr.ResolverType = qr.ResolverType
+			}
+			for domain, responses := range qr.Queries {
+				dr := new(DomainResult)
+				dnsr := new(DNSResponse)
+				dr.Domain = domain
+				for _, response := range responses {
+					if x := net.ParseIP(response); x != nil {
+						dnsr.IPs = append(dnsr.IPs, x)
+					} else if strings.Split(response, ": ")[0] == "timeout" {
+						dnsr.Timeouts = true
+					} else if len(response) == 0 {
+						infoLogger.Printf("len of str is 0\n")
+					} else if strings.Contains(response, "Authority") {
+						dnsr.Authority = true
+					} else if isUrl(response) {
+						dnsr.NSs = append(dnsr.NSs, response)
+					} else {
+						dnsr.Others = append(dnsr.Others, response)
+					}
+				}
+				if numAs == 1 {
+					switch {
+					case ipSuccess(dnsr, domain):
+						dr.ASuccessesIP = 1
+						dr.ASuccessProbes = append(
+							dr.ASuccessProbes, qra.ProbeID,
+						)
+					case len(dnsr.IPs) > 0:
+						dr.AFailedIP = 1
+					case nsSuccess(dnsr, domain):
+						dr.ASuccessesNS = 1
+					case len(dnsr.NSs) > 0:
+						dr.AFailedNS = 1
+					case dnsr.Timeouts:
+						dr.ATimeouts = 1
+					case dnsr.Authority:
+						dr.AAuthority = 1
+					default:
+						infoLogger.Printf("nothing got 1 this time...\n")
+					}
+					dr.AResponse = dnsr
+					// pass dnsr, domain to check certs here and set ASuccessesIP, ASuccessesNS
+				} else if numAs == 4 {
+					switch {
+					case ipSuccess(dnsr, domain):
+						dr.AAAASuccessesIP = 1
+						dr.AAAASuccessProbes = append(
+							dr.AAAASuccessProbes, qra.ProbeID,
+						)
+					case len(dnsr.IPs) > 0:
+						dr.AAAAFailedIP = 1
+					case nsSuccess(dnsr, domain):
+						dr.AAAASuccessesNS = 1
+					case len(dnsr.NSs) > 0:
+						dr.AAAAFailedNS = 1
+					case dnsr.Timeouts:
+						dr.AAAATimeouts = 1
+					case dnsr.Authority:
+						dr.AAAAAuthority = 1
+					default:
+						infoLogger.Printf("nothing got 1 this time...\n")
+					}
+					dr.AAAAResponse = dnsr
+					// pass dnsr, domain to check certs here and set AAAASuccessesIP, AAAASuccessesNS
+				}
+
+				rr.DomainResults = append(rr.DomainResults, dr)
+			}
+
+			ret = append(ret, rr)
+		}
+		consolidateChan <- ret
+		wg.Done()
+	}
+}
+
+type QueryResultsAndNumAs struct {
+	ProbeID      int
+	QueryResults []results.QueryResult
+	NumAs        int
+}
+
+func parseProbeResult(
+	pr results.ProbeResult,
+	rrChan chan<- ResolverResults,
+	ctrChan chan<- int,
 	wg *sync.WaitGroup,
 ) {
 	defer wg.Done()
-	toDC := make(DomainToIPs)
-	var toRC IPs
+	queryResultChan := make(chan QueryResultsAndNumAs)
+	defer close(queryResultChan)
 
-	for _, qr := range qrs {
-		if strings.Contains(qr.ResolverType, "_Resolver") {
-			toRC = append(toRC, net.ParseIP(qr.ResolverIP))
-		} else {
-			if len(qr.ResolverType) <= 0 {
-				fmt.Printf("empty one: %s: %v\n", qr.ResolverType, qr.ResolverIP)
-				continue
-			}
-			ip := net.ParseIP(qr.ResolverIP)
-			if ip.To4() != nil {
-				toDC[qr.ResolverType] = IPPair{
-					V4: append(toDC[qr.ResolverType].V4, ip),
-					V6: toDC[qr.ResolverType].V6,
-				}
-			} else {
-				toDC[qr.ResolverType] = IPPair{
-					V4: toDC[qr.ResolverType].V4,
-					V6: append(toDC[qr.ResolverType].V6, ip),
-				}
-
-			}
-		}
+	var tmpWg sync.WaitGroup
+	go parseQueryResults(queryResultChan, rrChan, &tmpWg)
+	ctrChan <- pr.ProbeID
+	tmpWg.Add(4)
+	queryResultChan <- QueryResultsAndNumAs{
+		ProbeID: pr.ProbeID, QueryResults: pr.V4ToV4, NumAs: 1,
 	}
-
-	dC <- toDC
-	rC <- toRC
-}
-
-func getResolverStats(fullResults Results) Resolvers {
-	var ret Resolvers
-	ret.Domains = make(DomainToIPs)
-	domainChan := make(chan DomainToIPs)
-	resolverChan := make(chan IPs)
-	var resolverWg sync.WaitGroup
-
-	go func(domainChan <-chan DomainToIPs) {
-		for dtp := range domainChan {
-			for k, v := range dtp {
-				for _, ip := range v.V4 {
-					if !ret.Domains[k].V4.Contains(ip) {
-						ret.Domains[k] = IPPair{
-							V4: append(ret.Domains[k].V4, ip),
-							V6: ret.Domains[k].V6,
-						}
-					}
-				}
-				for _, ip := range v.V6 {
-					if !ret.Domains[k].V6.Contains(ip) {
-						ret.Domains[k] = IPPair{
-							V4: ret.Domains[k].V4,
-							V6: append(ret.Domains[k].V6, ip),
-						}
-					}
-				}
-			}
-		}
-	}(domainChan)
-
-	go func(resolverChan <-chan IPs) {
-		for ips := range resolverChan {
-			for _, ip := range ips {
-				if ip.To4() != nil {
-					if !ret.Open.V4.Contains(ip) {
-						ret.Open.V4 = append(ret.Open.V4, ip)
-					}
-				} else {
-					if !ret.Open.V6.Contains(ip) {
-						ret.Open.V6 = append(ret.Open.V6, ip)
-					}
-				}
-			}
-		}
-	}(resolverChan)
-
-	for _, probeResults := range fullResults {
-		resolverWg.Add(4)
-		go resolverStatsFromProbe(
-			probeResults.V4ToV4,
-			domainChan,
-			resolverChan,
-			&resolverWg)
-		go resolverStatsFromProbe(
-			probeResults.V4ToV6,
-			domainChan,
-			resolverChan,
-			&resolverWg,
-		)
-		go resolverStatsFromProbe(
-			probeResults.V6ToV4,
-			domainChan,
-			resolverChan,
-			&resolverWg,
-		)
-		go resolverStatsFromProbe(
-			probeResults.V6ToV6,
-			domainChan,
-			resolverChan,
-			&resolverWg,
-		)
+	queryResultChan <- QueryResultsAndNumAs{
+		ProbeID: pr.ProbeID, QueryResults: pr.V4ToV6, NumAs: 4,
 	}
-
-	resolverWg.Wait()
-
-	close(domainChan)
-	close(resolverChan)
-
-	return ret
-}
-
-type Queries []string
-
-func getQueryStats(fullResults Results) Queries {
-	var ret Queries
-
-	pr := fullResults[0]
-	queries := pr.V4ToV4[0].Queries
-	for k := range queries {
-		ret = append(ret, k)
+	queryResultChan <- QueryResultsAndNumAs{
+		ProbeID: pr.ProbeID, QueryResults: pr.V6ToV4, NumAs: 1,
 	}
-
-	return ret
-}
-
-func printResolverStats(rs Resolvers, printIPs bool) {
-	numDomainResolvers := len(rs.Domains)
-	numDomainIPs := 0
-	for _, ips := range rs.Domains {
-		numDomainIPs += len(ips.V4)
-		numDomainIPs += len(ips.V6)
+	queryResultChan <- QueryResultsAndNumAs{
+		ProbeID: pr.ProbeID, QueryResults: pr.V6ToV6, NumAs: 4,
 	}
-	numOpenResolvers := len(rs.Open.V4) + len(rs.Open.V6)
-	numResolvers := numDomainResolvers + numOpenResolvers
-	fmt.Printf("Number of Resolvers: %d\n", numResolvers)
-	fmt.Printf(
-		"\tNumber of Domains: %d (%d ips)\n",
-		numDomainResolvers,
-		numDomainIPs,
-	)
-	if printIPs {
-		for d, ips := range rs.Domains {
-			fmt.Printf("\t\t%s:\t%d ips\n", d, len(ips.V4)+len(ips.V6))
-			fmt.Printf("\t\t\tV4 IPs: %d\n", len(ips.V4))
-			for _, ip := range ips.V4 {
-				fmt.Printf("\t\t\t\t%s\n", ip.String())
-			}
-			fmt.Printf("\t\t\tV6 Ips: %d\n", len(ips.V6))
-			for _, ip := range ips.V6 {
-				fmt.Printf("\t\t\t\t%s\n", ip.String())
-			}
-		}
-	}
-	fmt.Printf("\tNumber of Open Resolvers: %d\n", numOpenResolvers)
-	if printIPs {
-		fmt.Printf("\t\t\tV4 IPs: %d\n", len(rs.Open.V4))
-		for _, ip := range rs.Open.V4 {
-			fmt.Printf("\t\t\t\t%s\n", ip.String())
-		}
-		fmt.Printf("\t\t\tV6 IPs: %d\n", len(rs.Open.V6))
-		for _, ip := range rs.Open.V6 {
-			fmt.Printf("\t\t\t\t%s\n", ip.String())
-		}
-	}
+	tmpWg.Wait()
+	ctrChan <- pr.ProbeID * -1
 }
 
-func printQueryStats(qs Queries) {
-	fmt.Printf("Domains to be resolved: %d\n", len(qs))
-	for _, q := range qs {
-		fmt.Printf("\t%s\n", q)
-	}
-}
-
-func printGeneralStats(gS GenStats, printIPs bool) {
-	fmt.Printf("Number of probes in this measurement: %d\n", gS.NumProbes)
-	printResolverStats(gS.ResolverStats, printIPs)
-	printQueryStats(gS.QueryStats)
-}
-
-func generalStats(fullResults Results, genChan chan<- GenStats) {
-	var ret GenStats
-	ret.NumProbes = getNumProbes(fullResults)
-	ret.ResolverStats = getResolverStats(fullResults)
-	ret.QueryStats = getQueryStats(fullResults)
-
-	genChan <- ret
-}
-
-type GenStats struct {
-	NumProbes     int
-	ResolverStats Resolvers
-	QueryStats    Queries
-}
-
-func printSpecificResults(stats SpecificResults) {
-	for dom, spDom := range stats {
-		fmt.Printf("\tfor %s:\n", dom)
-		fmt.Printf("\t\tOpen Resolvers responded:\n")
-		if spDom.Open.Addresses > 0 {
-			fmt.Printf("\t\t\tWith Addresses: %d\n", spDom.Open.Addresses)
-		}
-		if spDom.Open.Timeouts > 0 {
-			fmt.Printf("\t\t\tWith Timeouts: %d\n", spDom.Open.Timeouts)
-		}
-		if spDom.Open.NameServers > 0 {
-			fmt.Printf("\t\t\tWith NameServers: %d\n", spDom.Open.NameServers)
-		}
-		if spDom.Open.Other > 0 {
-			fmt.Printf("\t\t\tWith Other: %d\n", spDom.Open.Other)
-			fmt.Printf("\t\t\t\tSee: \n")
-			for _, in := range spDom.Domain.OtherInfo {
-				fmt.Printf(
-					"\t\t\t\t\t{ProbeID: %d, Target: %s}\n",
-					in.ProbeID,
-					in.IP.String(),
-				)
-			}
-		}
-
-		fmt.Printf("\t\tDomain IPs responded:\n")
-		if spDom.Domain.Addresses > 0 {
-			fmt.Printf("\t\t\tWith Addresses: %d\n", spDom.Domain.Addresses)
-		}
-		if spDom.Domain.Timeouts > 0 {
-			fmt.Printf("\t\t\tWith Timeouts: %d\n", spDom.Domain.Timeouts)
-		}
-		if spDom.Domain.NameServers > 0 {
-			fmt.Printf("\t\t\tWith NameServers: %d\n", spDom.Domain.NameServers)
-		}
-		if spDom.Domain.Other > 0 {
-			fmt.Printf("\t\t\tWith Other: %d\n", spDom.Domain.Other)
-			fmt.Printf("\t\t\t\tSee: \n")
-			for _, in := range spDom.Domain.OtherInfo {
-				fmt.Printf(
-					"\t\t\t\t\t{ProbeID: %d, Target: %s}\n",
-					in.ProbeID,
-					in.IP.String(),
-				)
-			}
-		}
-
-	}
-}
-
-func printStats(genChan <-chan GenStats,
-	v4AChan <-chan SpecificResults,
-	v4AAAAChan <-chan SpecificResults,
-	v6AChan <-chan SpecificResults,
-	v6AAAAChan <-chan SpecificResults,
-	wg *sync.WaitGroup,
-	printIPs bool,
+func consolidate(
+	rrChan <-chan ResolverResults,
+	mapChan chan<- map[string]*ResolverResult,
 ) {
-	gS := <-genChan
-	printGeneralStats(gS, printIPs)
-	wg.Done()
+	consolidated := make(map[string]*ResolverResult)
 
-	v4AStats := <-v4AChan
-	fmt.Printf("When a V4 address was asked to resolve a domain for an A record:\n")
-	printSpecificResults(v4AStats)
-	wg.Done()
+	for rrs := range rrChan {
+		for _, rr := range rrs {
+			if existingRR, ok := consolidated[rr.ResolverIP.String()]; !ok {
+				consolidated[rr.ResolverIP.String()] = rr
+			} else {
+				for _, dr := range rr.DomainResults {
+					for _, existingDR := range existingRR.DomainResults {
+						if existingDR.Domain != dr.Domain {
+							continue
+						}
+						existingDR.AResponse = existingDR.AResponse.Append(dr.AResponse)
+						existingDR.AAAAResponse = existingDR.AAAAResponse.Append(dr.AResponse)
+						existingDR.ASuccessesIP += dr.ASuccessesIP
+						existingDR.ASuccessProbes = append(
+							existingDR.ASuccessProbes, dr.ASuccessProbes...,
+						)
+						existingDR.AFailedIP += dr.AFailedIP
+						existingDR.ASuccessesNS += dr.ASuccessesNS
+						existingDR.AFailedNS += dr.AFailedNS
+						existingDR.ATimeouts += dr.ATimeouts
+						existingDR.AAuthority += dr.AAuthority
+						existingDR.AAAASuccessesIP += dr.AAAASuccessesIP
+						existingDR.AAAASuccessProbes = append(
+							existingDR.AAAASuccessProbes,
+							dr.AAAASuccessProbes...,
+						)
+						existingDR.AAAAFailedIP += dr.AAAAFailedIP
+						existingDR.AAAASuccessesNS += dr.AAAASuccessesNS
+						existingDR.AAAAFailedNS += dr.AAAAFailedNS
+						existingDR.AAAATimeouts += dr.AAAATimeouts
+						existingDR.AAAAAuthority += dr.AAAAAuthority
+					}
+				}
+			}
+		}
+	}
 
-	v4AAAAStats := <-v4AAAAChan
-	fmt.Printf("When a V4 address was asked to resolve a domain for an AAAA record:\n")
-	printSpecificResults(v4AAAAStats)
-	wg.Done()
-
-	v6AStats := <-v6AChan
-	fmt.Printf("When a V6 address was asked to resolve a domain for an A record:\n")
-	printSpecificResults(v6AStats)
-	wg.Done()
-
-	v6AAAAStats := <-v6AAAAChan
-	fmt.Printf("When a V6 address was asked to resolve a domain for an AAAA record:\n")
-	printSpecificResults(v6AAAAStats)
-	wg.Done()
+	mapChan <- consolidated
 }
 
-type Info struct {
-	ProbeID int
-	IP      net.IP
-}
-type Infos []Info
-type SpecificResponse struct {
-	Addresses   int
-	Timeouts    int
-	NameServers int
-	Other       int
-	OtherInfo   Infos
-}
-type SpecificDomain struct {
-	Open   SpecificResponse
-	Domain SpecificResponse
-}
-type SpecificResults map[string]SpecificDomain
-
-func update(sr, newSr SpecificResponse) SpecificResponse {
-	sr.Addresses += newSr.Addresses
-	sr.Timeouts += newSr.Timeouts
-	sr.NameServers += newSr.NameServers
-	sr.Other += newSr.Other
-	sr.OtherInfo = append(sr.OtherInfo, newSr.OtherInfo...)
-	return sr
+func printIPResults(failures, successes int, succesProbes []int) {
+	if successes > 0 {
+		fmt.Printf("\t\t%d probe(s) received a valid IP", successes)
+		fmt.Printf(" (Probe ids: %v)\n", succesProbes)
+	}
+	if failures > 0 {
+		fmt.Printf("\t\t%d probe(s) received only invalid IPs\n", failures)
+	}
 }
 
-func isUrl(str string) bool {
-	// _, err := url.ParseRequestURI(str)
-	// if err != nil {
-	// 	return false
-	// }
-	_, err := url.Parse(str)
-	return err == nil
+func printTimeouts(num int) {
+	if num > 0 {
+		fmt.Printf("\t\t%d probe(s) timed out\n", num)
+	}
 }
 
-func getSpecificResponse(strs []string, prID int, resIP string) SpecificResponse {
-	info := Info{ProbeID: prID, IP: net.ParseIP(resIP)}
-	var sr SpecificResponse
-	for _, str := range strs {
-		if net.ParseIP(str) != nil {
-			sr.Addresses++
-		} else if strings.Split(str, ": ")[0] == "timeout" {
-			sr.Timeouts++
-		} else if len(str) == 0 {
-			infoLogger.Printf("len of str is 0\n")
-		} else if isUrl(str) {
-			sr.NameServers++
+func printAuthoritys(num int) {
+	if num > 0 {
+		fmt.Printf(
+			"\t\t%d probe(s) received No Answer or Authority Given\n", num,
+		)
+	}
+}
+
+func printNSResults(failures, successes int) {
+	if successes > 0 {
+		fmt.Printf(
+			"\t\t%d probe(s) received NameServers that served (locally) "+
+				"valid IPs\n",
+			successes,
+		)
+	}
+	if failures > 0 {
+		fmt.Printf(
+			"\t\t%d probe(s) received NameServers that served (locally) "+
+				"invalid IPs\n",
+			failures,
+		)
+	}
+}
+
+func printResults(numProbes int, mapChan <-chan map[string]*ResolverResult) {
+
+	m := <-mapChan
+	fmt.Printf(
+		"%d Probes were asked to use %d IPs as resolvers\n", numProbes, len(m),
+	)
+
+	for resIP, rr := range m {
+		fmt.Printf("%s (%s)\n", resIP, rr.ResolverType)
+		for _, domRes := range rr.DomainResults {
+			fmt.Printf("\tFor A record requests for %s:\n", domRes.Domain)
+			dnsRes := domRes.AResponse
+			printIPResults(
+				domRes.AFailedIP, domRes.ASuccessesIP, domRes.ASuccessProbes,
+			)
+			printNSResults(domRes.AFailedNS, domRes.ASuccessesNS)
+			printTimeouts(domRes.ATimeouts)
+			printAuthoritys(domRes.AAuthority)
+			if len(dnsRes.Others) > 0 {
+				fmt.Printf("\t\t%d probes received something else...\n", len(dnsRes.Others))
+			}
+
+			fmt.Printf("\tFor AAAA record requests for %s:\n", domRes.Domain)
+			dnsRes = domRes.AAAAResponse
+			printIPResults(
+				domRes.AAAAFailedIP,
+				domRes.AAAASuccessesIP,
+				domRes.AAAASuccessProbes,
+			)
+			printNSResults(domRes.AAAAFailedNS, domRes.AAAASuccessesNS)
+			printTimeouts(domRes.AAAATimeouts)
+			printAuthoritys(domRes.AAAAAuthority)
+			if len(dnsRes.Others) > 0 {
+				fmt.Printf("\t\t%d probes received something else...\n", len(dnsRes.Others))
+			}
+		}
+	}
+}
+
+func ctr(ctrChan <-chan int) {
+	ctrMap := make(map[int]bool)
+	for prbID := range ctrChan {
+		if prbID > 0 {
+			ctrMap[prbID] = true
 		} else {
-			sr.Other++
-			sr.OtherInfo = append(sr.OtherInfo, info)
+			delete(ctrMap, prbID*-1)
+		}
+		if len(ctrMap)%10 == 0 {
+			infoLogger.Printf("%d probe lookups still running\n", len(ctrMap))
 		}
 	}
-
-	return sr
-}
-
-func v6AAAAStats(fR Results, v6AAAAChan chan<- SpecificResults) {
-	toChan := make(SpecificResults)
-
-	for _, pr := range fR {
-		for _, qr := range pr.V6ToV6 {
-			for dom, resps := range qr.Queries {
-				if _, ok := toChan[dom]; !ok {
-					toChan[dom] = SpecificDomain{
-						Open:   SpecificResponse{},
-						Domain: SpecificResponse{},
-					}
-				}
-				if strings.Contains(qr.ResolverType, "_Resolver") {
-					resp := getSpecificResponse(resps, pr.ProbeID, qr.ResolverIP)
-					toChan[dom] = SpecificDomain{
-						Open:   update(toChan[dom].Open, resp),
-						Domain: toChan[dom].Domain,
-					}
-				} else {
-					resp := getSpecificResponse(resps, pr.ProbeID, qr.ResolverIP)
-					toChan[dom] = SpecificDomain{
-						Open:   toChan[dom].Open,
-						Domain: update(toChan[dom].Domain, resp),
-					}
-				}
-			}
-
-		}
-	}
-
-	v6AAAAChan <- toChan
-}
-
-func v4AAAAStats(fR Results, v4AAAAChan chan<- SpecificResults) {
-	toChan := make(SpecificResults)
-
-	for _, pr := range fR {
-		for _, qr := range pr.V4ToV6 {
-			for dom, resps := range qr.Queries {
-				if _, ok := toChan[dom]; !ok {
-					toChan[dom] = SpecificDomain{
-						Open:   SpecificResponse{},
-						Domain: SpecificResponse{},
-					}
-				}
-				if strings.Contains(qr.ResolverType, "_Resolver") {
-					resp := getSpecificResponse(resps, pr.ProbeID, qr.ResolverIP)
-					toChan[dom] = SpecificDomain{
-						Open:   update(toChan[dom].Open, resp),
-						Domain: toChan[dom].Domain,
-					}
-				} else {
-					resp := getSpecificResponse(resps, pr.ProbeID, qr.ResolverIP)
-					toChan[dom] = SpecificDomain{
-						Open:   toChan[dom].Open,
-						Domain: update(toChan[dom].Domain, resp),
-					}
-				}
-			}
-
-		}
-	}
-
-	v4AAAAChan <- toChan
-}
-
-func v6AStats(fR Results, v6AChan chan<- SpecificResults) {
-	toChan := make(SpecificResults)
-
-	for _, pr := range fR {
-		for _, qr := range pr.V6ToV4 {
-			for dom, resps := range qr.Queries {
-				if _, ok := toChan[dom]; !ok {
-					toChan[dom] = SpecificDomain{
-						Open:   SpecificResponse{},
-						Domain: SpecificResponse{},
-					}
-				}
-				if strings.Contains(qr.ResolverType, "_Resolver") {
-					resp := getSpecificResponse(resps, pr.ProbeID, qr.ResolverIP)
-					toChan[dom] = SpecificDomain{
-						Open:   update(toChan[dom].Open, resp),
-						Domain: toChan[dom].Domain,
-					}
-				} else {
-					resp := getSpecificResponse(resps, pr.ProbeID, qr.ResolverIP)
-					toChan[dom] = SpecificDomain{
-						Open:   toChan[dom].Open,
-						Domain: update(toChan[dom].Domain, resp),
-					}
-				}
-			}
-
-		}
-	}
-
-	v6AChan <- toChan
-}
-
-func v4AStats(fR Results, v4AChan chan<- SpecificResults) {
-	toChan := make(SpecificResults)
-
-	for _, pr := range fR {
-		for _, qr := range pr.V4ToV4 {
-			for dom, resps := range qr.Queries {
-				if _, ok := toChan[dom]; !ok {
-					toChan[dom] = SpecificDomain{
-						Open:   SpecificResponse{},
-						Domain: SpecificResponse{},
-					}
-				}
-				if strings.Contains(qr.ResolverType, "_Resolver") {
-					resp := getSpecificResponse(resps, pr.ProbeID, qr.ResolverIP)
-					toChan[dom] = SpecificDomain{
-						Open:   update(toChan[dom].Open, resp),
-						Domain: toChan[dom].Domain,
-					}
-				} else {
-					resp := getSpecificResponse(resps, pr.ProbeID, qr.ResolverIP)
-					toChan[dom] = SpecificDomain{
-						Open:   toChan[dom].Open,
-						Domain: update(toChan[dom].Domain, resp),
-					}
-				}
-			}
-
-		}
-	}
-
-	v4AChan <- toChan
 }
 
 func main() {
 	resultsPath := flag.String("r", "", "Path to results file")
-	printIPs := flag.Bool("ips", false, "Determine whether to print IPs of resolvers")
+	// printIPs := flag.Bool("ips", false, "Determine whether to print IPs of resolvers")
 	flag.Parse()
 	infoLogger = log.New(
 		os.Stderr,
@@ -572,28 +563,46 @@ func main() {
 		log.Ldate|log.Ltime|log.Lshortfile,
 	)
 	var wg sync.WaitGroup
-	genChan := make(chan GenStats)
-	v4AChan := make(chan SpecificResults)
-	v4AAAAChan := make(chan SpecificResults)
-	v6AChan := make(chan SpecificResults)
-	v6AAAAChan := make(chan SpecificResults)
+
 	fullResults := getStruct(*resultsPath)
 
-	go printStats(
-		genChan, v4AChan, v4AAAAChan, v6AChan, v6AAAAChan, &wg, *printIPs,
-	)
+	rrChan := make(chan ResolverResults)
+	mapChan := make(chan map[string]*ResolverResult)
+	ctrChan := make(chan int)
+	quickCheckConnDetailsChan = make(chan ConnDetails)
+	quickCheckStatusChan = make(chan IPStatus)
 
-	wg.Add(1)
-	go generalStats(fullResults, genChan)
+	go quickIPDomainLookup()
+	go consolidate(rrChan, mapChan)
+	go ctr(ctrChan)
+	for _, probeResult := range fullResults {
+		wg.Add(1)
+		go parseProbeResult(probeResult, rrChan, ctrChan, &wg)
+	}
+	// genChan := make(chan GenStats)
+	// v4AChan := make(chan SpecificResults)
+	// v4AAAAChan := make(chan SpecificResults)
+	// v6AChan := make(chan SpecificResults)
+	// v6AAAAChan := make(chan SpecificResults)
 
-	wg.Add(1)
-	go v4AStats(fullResults, v4AChan)
-	wg.Add(1)
-	go v4AAAAStats(fullResults, v4AAAAChan)
-	wg.Add(1)
-	go v6AStats(fullResults, v6AChan)
-	wg.Add(1)
-	go v6AAAAStats(fullResults, v6AAAAChan)
+	// go printStats(
+	// 	genChan, v4AChan, v4AAAAChan, v6AChan, v6AAAAChan, &wg, *printIPs,
+	// )
+
+	// wg.Add(1)
+	// go generalStats(fullResults, genChan)
+
+	// wg.Add(1)
+	// go v4AStats(fullResults, v4AChan)
+	// wg.Add(1)
+	// go v4AAAAStats(fullResults, v4AAAAChan)
+	// wg.Add(1)
+	// go v6AStats(fullResults, v6AChan)
+	// wg.Add(1)
+	// go v6AAAAStats(fullResults, v6AAAAChan)
 
 	wg.Wait()
+	close(ctrChan)
+	close(rrChan)
+	printResults(len(fullResults), mapChan)
 }
