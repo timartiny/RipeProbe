@@ -423,10 +423,9 @@ func main() {
 	ooniFile := fmt.Sprintf("%s/%s_OONI.json", dataFilePrefix, *countryCode)
 	alexaFile := fmt.Sprintf("%s/%s_Alexa.dat", dataFilePrefix, *countryCode)
 	lookupFile := fmt.Sprintf(
-		"%s/%s_lookup_%s.json",
+		"%s/%s_lookup.json",
 		dataFilePrefix,
 		*countryCode,
-		timeStr,
 	)
 	probeFile := fmt.Sprintf("%s/%s_probes.json", dataFilePrefix, *countryCode)
 	if !*noProbeFlag {
