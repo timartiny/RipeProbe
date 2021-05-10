@@ -57,8 +57,6 @@ func parseABuf(abuf string) (map[string][]string, int) {
 			errorLogger.Fatalf("Failed to decode dns packet: %v\n", err)
 		}
 	}
-	q := dns.Questions[0]
-	numAs = len(q.Type.String())
 	for _, answer := range dns.Answers {
 		// infoLogger.Printf("%s: %v\n", answer.Name, answer.IP)
 		resMap[string(answer.Name)] = append(
@@ -66,6 +64,11 @@ func parseABuf(abuf string) (map[string][]string, int) {
 		)
 	}
 	if dns.ANCount == 0 {
+		var q layers.DNSQuestion
+		if len(dns.Questions) > 0 {
+			q = dns.Questions[0]
+			numAs = len(q.Type.String())
+		}
 		for _, auth := range dns.Authorities {
 			resMap[string(q.Name)] = append(
 				resMap[string(q.Name)], string(auth.NS),
@@ -76,6 +79,10 @@ func parseABuf(abuf string) (map[string][]string, int) {
 		}
 	}
 
+	if len(resMap) == 0 {
+		errorLogger.Printf("Got no resonses?\n")
+		errorLogger.Println(abuf)
+	}
 	return resMap, numAs
 }
 
@@ -223,6 +230,19 @@ func addToResult(currResult results.ProbeResult, newResults results.MeasurementR
 				newResults.PrbID,
 				newResults.MsmID,
 			)
+			errorLogger.Printf("%v", newResults.Result.Abuf)
+			return currResult
+		}
+		if numAs == 0 {
+			for _, v := range queries {
+				if strings.Contains(v[0], ".") {
+					numAs = 1
+				} else {
+					numAs = 4
+				}
+				break
+
+			}
 		}
 		queryRes.Queries = queries
 		if newResults.AF == 4 && numAs == 1 {
