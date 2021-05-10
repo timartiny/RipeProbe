@@ -3,8 +3,11 @@
 This script will create the simplified list of "resolvers" for the whiteboard experiment.
 
 It assumes:
+
 1. A query (`../../runexperiment`) has already been run to do DNS queries on popular domains for a particular country.
+
 2. The results of that query have been fetched.
+
 3. The results of that query have been merged together.
 
 Then this script will read those merged results, and store them in 
