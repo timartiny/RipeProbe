@@ -2,12 +2,17 @@ package main
 
 import (
 	"bufio"
-	"errors"
+	"context"
+	"crypto/tls"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"strings"
+	"sync"
+	"time"
 )
 
 var infoLogger *log.Logger
@@ -105,56 +110,167 @@ func getBlocked(path string) map[string]interface{} {
 	return ret
 }
 
-// This function will return a popular domain that isn't blocked, or an error
-func getUnblockedDomain(popDoms []string, blockedDoms map[string]interface{}, num int) ([]string, error) {
-	var ret []string
-	for _, dom := range popDoms {
-		if _, ok := blockedDoms[dom]; !ok {
-			ret = append(ret, dom)
+func hasV4AndV6(dom string) (bool, bool) {
+	var (
+		hasV4 bool
+		hasV6 bool
+	)
+	r := &net.Resolver{
+		PreferGo: false,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{
+				Timeout: time.Millisecond * time.Duration(10000),
+			}
+			return d.DialContext(ctx, network, net.JoinHostPort("8.8.8.8", "53"))
+		},
+	}
+	ip4s, err := r.LookupIP(context.Background(), "ip4", dom)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such host") {
+			errorLogger.Printf("r.LookupIP(.,ip4,.) err: %v", err)
 		}
-
-		if len(ret) == num {
-			return ret, nil
+	}
+	if len(ip4s) > 0 {
+		hasV4 = true
+	}
+	ip6s, err := r.LookupIP(context.Background(), "ip6", dom)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such host") {
+			errorLogger.Printf("r.LookupIP(.,ip6,.) err: %v", err)
 		}
 	}
 
-	return []string{""}, errors.New("failed to find a popular domain that wasn't blocked")
-}
-
-// Will get requested number of popDoms from blockedDoms (or as many as possible)
-func getNBlockedPopularDomains(popDoms []string, blockedDoms map[string]interface{}, num int) []string {
-	var ret []string
-	for _, dom := range popDoms {
-		if _, ok := blockedDoms[dom]; ok {
-			ret = append(ret, dom)
-		}
-
-		if len(ret) == num {
-			break
-		}
+	if len(ip6s) > 0 {
+		hasV6 = true
 	}
 
-	return ret
+	return hasV4, hasV6
 }
 
-func writeToFile(list []string, path string) {
+func writeToFile(im InterestingMap, path string) {
 	file, err := os.Create(path)
 	if err != nil {
-		errorLogger.Printf("Can't open file, printing list, %v", err)
-		fmt.Printf("%v\n", list)
+		errorLogger.Printf("Can't open file %s: %v", path, err)
 		os.Exit(1)
 	}
 	defer file.Close()
+	writeSlice := make([]*DomainResults, len(im))
 
-	for _, dom := range list {
-		_, err = file.WriteString(dom + "\n")
-		if err != nil {
-			errorLogger.Printf("Can't write to file, printing list, %v\n", err)
-			fmt.Printf("%v\n", list)
-			os.Exit(2)
-		}
+	idx := 0
+	for _, dr := range im {
+		writeSlice[idx] = dr
+		idx++
 	}
 
+	bs, err := json.Marshal(&writeSlice)
+	if err != nil {
+		errorLogger.Printf("json.Marshal error: %v\n", err)
+		os.Exit(2)
+	}
+	file.Write(bs)
+}
+
+type DomainResults struct {
+	Domain  string `json:"domain,omitempty"`
+	HasV4   bool   `json:"has_v4"`
+	HasV6   bool   `json:"has_v6"`
+	HasTLS  bool   `json:"has_tls"`
+	Blocked bool   `json:"blocked"`
+}
+
+func hasTLS(domain string) bool {
+	config := tls.Config{ServerName: domain}
+	timeout := time.Duration(90) * time.Second
+	dialConn, err := net.DialTimeout(
+		"tcp", net.JoinHostPort(domain, "443"), timeout,
+	)
+	if err != nil {
+		// errorLogger.Printf("net.DialTimeout err: %v\n", err)
+		return false
+	}
+	tlsConn := tls.Client(dialConn, &config)
+	defer tlsConn.Close()
+	dialConn.SetReadDeadline(time.Now().Add(timeout))
+	dialConn.SetWriteDeadline(time.Now().Add(timeout))
+
+	tlsConn.Handshake()
+	err = tlsConn.VerifyHostname(domain)
+	if err != nil {
+		// errorLogger.Printf("tlsConn.VerifyHostname err: %v\n", err)
+		return false
+	}
+
+	return tlsConn.ConnectionState().PeerCertificates[0].NotAfter.After(time.Now())
+}
+
+func checkDom(domResultsChan chan<- *DomainResults, dom string) {
+	dr := new(DomainResults)
+	dr.Domain = dom
+	h4, h6 := hasV4AndV6(dom)
+	dr.HasV4 = h4
+	dr.HasV6 = h6
+	dr.HasTLS = hasTLS(dom)
+
+	domResultsChan <- dr
+}
+
+func domChecker(domInChan <-chan string, domResultsChan chan<- *DomainResults) {
+	for dom := range domInChan {
+		dr := new(DomainResults)
+		dr.Domain = dom
+		h4, h6 := hasV4AndV6(dom)
+		dr.HasV4 = h4
+		dr.HasV6 = h6
+		dr.HasTLS = hasTLS(dom)
+
+		domResultsChan <- dr
+	}
+}
+
+type InterestingMap map[string]*DomainResults
+
+func domResults(
+	domResultsChan <-chan *DomainResults,
+	interestingChan chan<- InterestingMap,
+	counterChan chan<- string,
+	wg *sync.WaitGroup,
+) {
+	interestingMap := make(InterestingMap)
+	counter := 0
+	for dr := range domResultsChan {
+		counter++
+		// if dr.HasTLS && dr.HasV4 && dr.HasV6 {
+		// }
+		interestingMap[dr.Domain] = dr
+		if counter%100 == 0 {
+			infoLogger.Printf("got results from %d domains\n", counter)
+		}
+		// counterChan <- dr.Domain
+		wg.Done()
+	}
+	interestingChan <- interestingMap
+}
+
+func updateInterestingMap(im InterestingMap, blockedDoms map[string]interface{}) {
+	for dom, dr := range im {
+		_, ok := blockedDoms[dom]
+		dr.Blocked = ok
+	}
+}
+
+func counter(cc <-chan string) {
+	cm := make(map[string]interface{})
+	for dom := range cc {
+		if _, ok := cm[dom]; ok {
+			delete(cm, dom)
+		} else {
+			cm[dom] = nil
+		}
+
+		if len(cm) <= 10 {
+			infoLogger.Printf("remaining doms: %v\n", cm)
+		}
+	}
 }
 
 func main() {
@@ -178,73 +294,91 @@ func main() {
 		"",
 		"Path to file listing domains by popularity",
 	)
-	const AT_A_TIME = 100
+	cap := flag.Int(
+		"cap",
+		-1,
+		"Maximum number of domains to read from popular file",
+	)
 	blockedPath := flag.String(
 		"b",
 		"",
 		"Path to file containing special domains, possibly blocked",
 	)
-	blockedNum := flag.Int(
-		"n",
-		4,
-		"Number of blocked domains to print",
+	numWorkers := flag.Int(
+		"w",
+		5,
+		"Number of separate goroutines to do look-ups",
 	)
-	unblockedNum := flag.Int(
-		"u",
-		1,
-		"Number of unblocked domains to print",
-	)
+	// blockedNum := flag.Int(
+	// 	"n",
+	// 	-1,
+	// 	"Number of blocked domains to print, (negative number means grab all)",
+	// )
+	// unblockedNum := flag.Int(
+	// 	"u",
+	// 	-1,
+	// 	"Number of unblocked domains to print, (negative number means grab all)",
+	// )
+
+	domResultsChan := make(chan *DomainResults)
+	interestingChan := make(chan InterestingMap)
+	domInChan := make(chan string)
+	counterChan := make(chan string)
+	var wg sync.WaitGroup
 
 	flag.Parse()
+	file, err := os.Open(*popularityPath)
+	if err != nil {
+		errorLogger.Fatalf(
+			"Error opening popularity file, %s, exiting: %v\n",
+			*popularityPath,
+			err,
+		)
+	}
+	defer file.Close()
+	go domResults(domResultsChan, interestingChan, counterChan, &wg)
+	// go counter(counterChan)
+	scanner := bufio.NewScanner(file)
+	for i := 0; i < *numWorkers; i++ {
+		go domChecker(domInChan, domResultsChan)
+	}
+
+	counter := 0
+	for scanner.Scan() {
+		text := scanner.Text()
+		split := strings.Split(text, ",")
+		wg.Add(1)
+		counter++
+		// counterChan <- split[1]
+		domInChan <- split[1]
+		// go checkDom(domResultsChan, split[1])
+		if *cap > 0 && counter >= *cap {
+			break
+		}
+		if counter%100 == 0 {
+			time.Sleep(time.Duration(5) * time.Second)
+		}
+	}
+	infoLogger.Printf(
+		"read in all %d popular domains. Waiting for interestingness\n", counter,
+	)
+	wg.Wait()
+	close(domResultsChan)
+	close(domInChan)
+	close(counterChan)
+	interestingMap := <-interestingChan
+	// for dom := range interestingMap {
+	// 	infoLogger.Printf("Interesting domain: %s\n", dom)
+	// }
 	infoLogger.Printf("Getting 'blocked' domains from %s\n", *blockedPath)
 	blockedDoms := getBlocked(*blockedPath)
-	var final []string
-	skip := 0
-	neededUnblocked := *unblockedNum
-	neededBlocked := *blockedNum
-
-	for neededUnblocked > 0 || neededBlocked > 0 {
-		infoLogger.Printf(
-			"Grabbing %d popular domains, numbers %d-%d from %s\n",
-			AT_A_TIME,
-			skip+1,
-			skip+AT_A_TIME,
-			*popularityPath,
-		)
-		nPopDoms := getNPopular(*popularityPath, AT_A_TIME, skip)
-		if neededUnblocked > 0 {
-			infoLogger.Printf("Looking for popular unblocked domain(s)\n")
-			doms, err := getUnblockedDomain(nPopDoms, blockedDoms, neededUnblocked)
-			if err == nil {
-				infoLogger.Printf("Found popular unblocked domain(s): %s\n", doms)
-				final = append(final, doms...)
-				neededUnblocked -= len(doms)
-			}
-		}
-
-		if neededBlocked > 0 {
-			infoLogger.Printf(
-				"Looking for %d popular blocked domains\n",
-				neededBlocked,
-			)
-			doms := getNBlockedPopularDomains(nPopDoms, blockedDoms, neededBlocked)
-			infoLogger.Printf(
-				"Found %d popular blocked domains: %v",
-				len(doms),
-				doms,
-			)
-			final = append(final, doms...)
-			neededBlocked -= len(doms)
-		}
-
-		skip += AT_A_TIME
-	}
+	updateInterestingMap(interestingMap, blockedDoms)
 
 	if len(*countryCode) == 0 {
 		errorLogger.Fatalf("Need to provide country code (-c) to save to file\n")
 	}
-	outPath := fmt.Sprintf("%s/%s_bad_domains.dat", dataPrefix, *countryCode)
-	infoLogger.Printf("Writing final list: %v to file %s\n", final, outPath)
+	outPath := fmt.Sprintf("%s/%s_interesting_domains.dat", dataPrefix, *countryCode)
 
-	writeToFile(final, outPath)
+	infoLogger.Printf("Writing interesting map to %s\n", outPath)
+	writeToFile(interestingMap, outPath)
 }

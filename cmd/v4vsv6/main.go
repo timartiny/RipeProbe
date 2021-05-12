@@ -43,6 +43,7 @@ type Event struct {
 	NoAns     int
 	ValidNS   int
 	InvalidNS int
+	SOA       int
 	Data      DomainToIPList
 }
 
@@ -53,6 +54,7 @@ func (e *Event) Update(otherE *Event) {
 	e.NoAns += otherE.NoAns
 	e.ValidNS += otherE.ValidNS
 	e.InvalidNS += otherE.InvalidNS
+	e.SOA += otherE.SOA
 
 	for key, values := range otherE.Data {
 		if _, ok := e.Data[key]; !ok {
@@ -71,6 +73,7 @@ func (e Event) String() string {
 	ret += fmt.Sprintf("\t\tNo Answer or Authority Given: %d\n", e.NoAns)
 	ret += fmt.Sprintf("\t\tValidNS: %d\n", e.ValidNS)
 	ret += fmt.Sprintf("\t\tInvalidNS: %d\n", e.InvalidNS)
+	ret += fmt.Sprintf("\t\tSOA: %d\n", e.SOA)
 	ret += fmt.Sprintf("\t\tData: %v", e.Data)
 	return ret
 }
@@ -371,6 +374,7 @@ const (
 	ValidIP DataResult = iota
 	InvalidIP
 	NS
+	SOA
 )
 
 func verifyIPs(trip Triplet, ipCertMap IPCertMap) {
@@ -395,8 +399,11 @@ func verifyIPs(trip Triplet, ipCertMap IPCertMap) {
 						} else {
 							if net.ParseIP(ip) != nil {
 								domResult = InvalidIP
+							} else if strings.Contains(ip, "SOA") {
+								domResult = SOA
 							} else {
 								domResult = NS
+								infoLogger.Printf("Got something: %s for %s\n", ip, dom)
 							}
 						}
 					}
@@ -407,6 +414,8 @@ func verifyIPs(trip Triplet, ipCertMap IPCertMap) {
 						eventPtr.InvalidIP++
 					case NS:
 						eventPtr.ValidNS++
+					case SOA:
+						eventPtr.SOA++
 					}
 				}
 
@@ -421,6 +430,7 @@ type EventTable struct {
 	InvalidIP int
 	Timeout   int
 	NoAns     int
+	SOA       int
 	NS        int
 }
 
@@ -431,6 +441,7 @@ func (et EventTable) Total() int {
 	total += et.InvalidIP
 	total += et.Timeout
 	total += et.NoAns
+	total += et.SOA
 	total += et.NS
 
 	return total
@@ -452,6 +463,7 @@ func getTable(trip Triplet) (EventTable, EventTable) {
 					v4EventTable.Timeout += eventPtr.Timeout
 					v4EventTable.NoAns += eventPtr.NoAns
 					v4EventTable.NS += eventPtr.ValidNS
+					v4EventTable.SOA += eventPtr.SOA
 					// this should be zero atm, but for future use maybe
 					v4EventTable.NS += eventPtr.InvalidNS
 				case "v6":
@@ -460,6 +472,7 @@ func getTable(trip Triplet) (EventTable, EventTable) {
 					v6EventTable.Timeout += eventPtr.Timeout
 					v6EventTable.NoAns += eventPtr.NoAns
 					v6EventTable.NS += eventPtr.ValidNS
+					v6EventTable.SOA += eventPtr.SOA
 					// this should be zero atm, but for future use maybe
 					v6EventTable.NS += eventPtr.InvalidNS
 				}
@@ -477,6 +490,7 @@ func printTable(v4Table, v6Table EventTable) {
 	fmt.Printf("InvalidIP\t| %d\t| %d\t| %d\n", v4Table.InvalidIP, v6Table.InvalidIP, v4Table.InvalidIP+v6Table.InvalidIP)
 	fmt.Printf("Timeout\t\t| %d\t| %d\t| %d\n", v4Table.Timeout, v6Table.Timeout, v4Table.Timeout+v6Table.Timeout)
 	fmt.Printf("NoAns\t\t| %d\t| %d\t| %d\n", v4Table.NoAns, v6Table.NoAns, v4Table.NoAns+v6Table.NoAns)
+	fmt.Printf("SOA\t\t| %d\t| %d\t| %d\n", v4Table.SOA, v6Table.SOA, v4Table.SOA+v6Table.SOA)
 	fmt.Printf("NS\t\t| %d\t| %d\t| %d\n", v4Table.NS, v6Table.NS, v4Table.NS+v6Table.NS)
 	fmt.Printf("Total\t\t| %d\t| %d\t| %d\n", v4Table.Total(), v6Table.Total(), v4Table.Total()+v6Table.Total())
 }
@@ -559,7 +573,7 @@ func printPTable(v4Table, v6Table EventTable) {
 
 func main() {
 	resultsPath := flag.String("r", "", "Path to results file")
-	uncensoredDomains := flag.String("u", "", "comma separated list of domains that are uncesnsored")
+	uncensoredDomains := flag.String("u", "", "comma separated list of domains that are uncensored")
 	flag.Parse()
 	infoLogger = log.New(
 		os.Stderr,
