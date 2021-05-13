@@ -59,9 +59,16 @@ func parseABuf(abuf string) (map[string][]string, int) {
 	}
 	for _, answer := range dns.Answers {
 		// infoLogger.Printf("%s: %v\n", answer.Name, answer.IP)
-		resMap[string(answer.Name)] = append(
-			resMap[string(answer.Name)], answer.IP.String(),
-		)
+		if len(answer.IP.String()) != 0 {
+			resMap[string(answer.Name)] = append(
+				resMap[string(answer.Name)], answer.IP.String(),
+			)
+		} else {
+			infoLogger.Printf("ip len is 0, class: %v\n", answer.Class)
+			resMap[string(answer.Name)] = append(
+				resMap[string(answer.Name)], answer.Class.String(),
+			)
+		}
 	}
 	if dns.ANCount == 0 {
 		var q layers.DNSQuestion
@@ -71,8 +78,11 @@ func parseABuf(abuf string) (map[string][]string, int) {
 		}
 		for _, auth := range dns.Authorities {
 			resMap[string(q.Name)] = append(
-				resMap[string(q.Name)], string(auth.NS),
+				resMap[string(q.Name)], auth.Type.String(),
 			)
+		}
+		if len(dns.Additionals) > 0 {
+			infoLogger.Printf("ARcount >0\n")
 		}
 		if dns.NSCount == 0 {
 			resMap[string(q.Name)] = []string{"No Answer or Authority Given"}
