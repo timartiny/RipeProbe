@@ -398,7 +398,7 @@ func getTechRequirements(drm DomainResultsMap, path string) {
 }
 
 func main() {
-	dataPrefix := "../../data"
+	dataPrefix := "data"
 	infoLogger = log.New(
 		os.Stderr,
 		"INFO: ",
@@ -486,21 +486,27 @@ func main() {
 	}
 
 	checkBlockedLists(domainResultsMap, *clgPath, *clcPath)
-	if len(*countryCode) != 0 {
-		writeToFile(
-			domainResultsMap,
-			fmt.Sprintf(
-				"%s/%s-top-1m-ripe-ready.json",
-				dataPrefix,
-				*countryCode,
-			),
+	if len(*clgPath) == 0 && len(*clcPath) == 0 {
+		infoLogger.Printf(
+			"No Citizen Lab Paths provided, not creating a ripe-ready file\n",
 		)
-
 	} else {
-		errorLogger.Printf("No country code provided, saving to a generic file")
-		writeToFile(
-			domainResultsMap,
-			fmt.Sprintf("%s/top-1m-ripe-ready.json", dataPrefix),
-		)
+		if len(*countryCode) != 0 {
+			writeToFile(
+				domainResultsMap,
+				fmt.Sprintf(
+					"%s/%s-top-1m-ripe-ready.json",
+					dataPrefix,
+					*countryCode,
+				),
+			)
+
+		} else {
+			errorLogger.Printf("No country code provided, saving to a generic file")
+			writeToFile(
+				domainResultsMap,
+				fmt.Sprintf("%s/top-1m-ripe-ready.json", dataPrefix),
+			)
+		}
 	}
 }
