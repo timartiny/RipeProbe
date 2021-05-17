@@ -2,17 +2,16 @@ package main
 
 import (
 	"bufio"
-	"context"
-	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
 	"strings"
-	"sync"
-	"time"
 )
 
 var infoLogger *log.Logger
@@ -84,7 +83,7 @@ func strip(url string) string {
 // assumes file has form:
 // url,category_code,category_description,date_added,source,notes
 // url has protocol (http[s]), might have www. and an ending slash
-// this file will remove them all.
+// this function will remove them all.
 func getBlocked(path string) map[string]interface{} {
 	ret := make(map[string]interface{})
 	file, err := os.Open(path)
@@ -110,44 +109,8 @@ func getBlocked(path string) map[string]interface{} {
 	return ret
 }
 
-func hasV4AndV6(dom string) (bool, bool) {
-	var (
-		hasV4 bool
-		hasV6 bool
-	)
-	r := &net.Resolver{
-		PreferGo: false,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			d := net.Dialer{
-				Timeout: time.Millisecond * time.Duration(10000),
-			}
-			return d.DialContext(ctx, network, net.JoinHostPort("8.8.8.8", "53"))
-		},
-	}
-	ip4s, err := r.LookupIP(context.Background(), "ip4", dom)
-	if err != nil {
-		if strings.Contains(err.Error(), "no such host") {
-			errorLogger.Printf("r.LookupIP(.,ip4,.) err: %v", err)
-		}
-	}
-	if len(ip4s) > 0 {
-		hasV4 = true
-	}
-	ip6s, err := r.LookupIP(context.Background(), "ip6", dom)
-	if err != nil {
-		if strings.Contains(err.Error(), "no such host") {
-			errorLogger.Printf("r.LookupIP(.,ip6,.) err: %v", err)
-		}
-	}
-
-	if len(ip6s) > 0 {
-		hasV6 = true
-	}
-
-	return hasV4, hasV6
-}
-
-func writeToFile(im InterestingMap, path string) {
+func writeToFile(im DomainResultsMap, path string) {
+	infoLogger.Printf("Writing to %s\n", path)
 	file, err := os.Create(path)
 	if err != nil {
 		errorLogger.Printf("Can't open file %s: %v", path, err)
@@ -171,90 +134,26 @@ func writeToFile(im InterestingMap, path string) {
 }
 
 type DomainResults struct {
-	Domain  string `json:"domain,omitempty"`
-	HasV4   bool   `json:"has_v4"`
-	HasV6   bool   `json:"has_v6"`
-	HasTLS  bool   `json:"has_tls"`
-	Blocked bool   `json:"blocked"`
+	Domain                string `json:"domain,omitempty"`
+	Rank                  int    `json:"tranco_rank,omitempty"`
+	HasV4                 bool   `json:"has_v4"`
+	HasV6                 bool   `json:"has_v6"`
+	HasTLS                bool   `json:"has_tls"`
+	CitizenLabGlobalList  bool   `json:"citizen_lab_global_list"`
+	CitizenLabCountryList bool   `json:"citizen_lab_country_list"`
 }
 
-func hasTLS(domain string) bool {
-	config := tls.Config{ServerName: domain}
-	timeout := time.Duration(90) * time.Second
-	dialConn, err := net.DialTimeout(
-		"tcp", net.JoinHostPort(domain, "443"), timeout,
-	)
-	if err != nil {
-		// errorLogger.Printf("net.DialTimeout err: %v\n", err)
-		return false
-	}
-	tlsConn := tls.Client(dialConn, &config)
-	defer tlsConn.Close()
-	dialConn.SetReadDeadline(time.Now().Add(timeout))
-	dialConn.SetWriteDeadline(time.Now().Add(timeout))
+type DomainResultsMap map[string]*DomainResults
 
-	tlsConn.Handshake()
-	err = tlsConn.VerifyHostname(domain)
-	if err != nil {
-		// errorLogger.Printf("tlsConn.VerifyHostname err: %v\n", err)
-		return false
-	}
-
-	return tlsConn.ConnectionState().PeerCertificates[0].NotAfter.After(time.Now())
-}
-
-func checkDom(domResultsChan chan<- *DomainResults, dom string) {
-	dr := new(DomainResults)
-	dr.Domain = dom
-	h4, h6 := hasV4AndV6(dom)
-	dr.HasV4 = h4
-	dr.HasV6 = h6
-	dr.HasTLS = hasTLS(dom)
-
-	domResultsChan <- dr
-}
-
-func domChecker(domInChan <-chan string, domResultsChan chan<- *DomainResults) {
-	for dom := range domInChan {
-		dr := new(DomainResults)
-		dr.Domain = dom
-		h4, h6 := hasV4AndV6(dom)
-		dr.HasV4 = h4
-		dr.HasV6 = h6
-		dr.HasTLS = hasTLS(dom)
-
-		domResultsChan <- dr
-	}
-}
-
-type InterestingMap map[string]*DomainResults
-
-func domResults(
-	domResultsChan <-chan *DomainResults,
-	interestingChan chan<- InterestingMap,
-	counterChan chan<- string,
-	wg *sync.WaitGroup,
-) {
-	interestingMap := make(InterestingMap)
-	counter := 0
-	for dr := range domResultsChan {
-		counter++
-		// if dr.HasTLS && dr.HasV4 && dr.HasV6 {
-		// }
-		interestingMap[dr.Domain] = dr
-		if counter%100 == 0 {
-			infoLogger.Printf("got results from %d domains\n", counter)
-		}
-		// counterChan <- dr.Domain
-		wg.Done()
-	}
-	interestingChan <- interestingMap
-}
-
-func updateInterestingMap(im InterestingMap, blockedDoms map[string]interface{}) {
-	for dom, dr := range im {
+func updateDRM(drm DomainResultsMap, blockedDoms map[string]interface{}, list string) {
+	for dom, dr := range drm {
 		_, ok := blockedDoms[dom]
-		dr.Blocked = ok
+		switch list {
+		case "citizenlab global":
+			dr.CitizenLabGlobalList = ok
+		case "citizenlab country":
+			dr.CitizenLabCountryList = ok
+		}
 	}
 }
 
@@ -273,6 +172,231 @@ func counter(cc <-chan string) {
 	}
 }
 
+func mergeAddressResults(drm map[string]*DomainResults, path, addressType string) {
+	file, err := os.Open(path)
+	if err != nil {
+		errorLogger.Fatalf("os.Open err: %v\n", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	unCoveredCases := make(map[string]bool)
+
+	for scanner.Scan() {
+		var tmpMap map[string]interface{}
+		var dr *DomainResults
+		l := scanner.Text()
+		json.Unmarshal([]byte(l), &tmpMap)
+		domainName := tmpMap["name"].(string)
+		tmpRank := int(tmpMap["alexa_rank"].(float64))
+
+		// get existing or create the DomainResults
+		if d, ok := drm[domainName]; ok {
+			dr = d
+			if dr.Rank != tmpRank {
+				errorLogger.Fatalf(
+					"Rank from %s for %s (%d) is different than previously "+
+						"stored rank (%d)\n",
+					path,
+					domainName,
+					tmpRank,
+					dr.Rank,
+				)
+			}
+		} else {
+			dr = new(DomainResults)
+			dr.Domain = domainName
+			dr.Rank = tmpRank
+		}
+
+		// Now look at the data section
+		data := tmpMap["data"].(map[string]interface{})
+
+		// only look at the section called answers, not interested in authorities
+		if answersInterface, ok := data["answers"]; ok {
+			answersArr := answersInterface.([]interface{})
+			for _, answerInterface := range answersArr {
+				answerMap := answerInterface.(map[string]interface{})
+				recordType := answerMap["type"].(string)
+
+				// make sure to get matching record type based on query type
+				if recordType == "A" && addressType == "v4" {
+					ipString := answerMap["answer"].(string)
+					ip := net.ParseIP(ipString)
+
+					// consider domain to have v4 if the answer is actually
+					// an ip address that can be converted to a v4 address
+					if ip != nil && ip.To4() != nil {
+						dr.HasV4 = true
+					}
+				} else if recordType == "AAAA" && addressType == "v6" {
+					ipString := answerMap["answer"].(string)
+					ip := net.ParseIP(ipString)
+
+					// consider domain to have v4 if the answer is actually
+					// an ip address that can be converted to a v4 address
+					if ip != nil && ip.To4() == nil {
+						dr.HasV6 = true
+					}
+				} else {
+					uccString := fmt.Sprintf("%s,%s", recordType, addressType)
+					if _, ok := unCoveredCases[uccString]; ok {
+						continue
+					}
+					errorLogger.Printf(
+						"Case not covered yet, got address type: %s and "+
+							"record type: %s, for domain: %s\n",
+						addressType,
+						recordType,
+						domainName,
+					)
+					unCoveredCases[uccString] = true
+				}
+			}
+		}
+		drm[domainName] = dr
+	}
+}
+
+func mergeTLSResults(drm map[string]*DomainResults, path string) {
+	file, err := os.Open(path)
+	if err != nil {
+		errorLogger.Fatalf("os.Open err: %v\n", err)
+	}
+	defer file.Close()
+	nonSuccessCase := map[string]bool{}
+
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		var tmpMap map[string]interface{}
+		l := scanner.Text()
+		json.Unmarshal([]byte(l), &tmpMap)
+		domainName := tmpMap["domain"].(string)
+		if _, ok := drm[domainName]; !ok {
+			errorLogger.Printf(
+				"domainName: %s, not already in drm, skipping for now, should "+
+					"fix though\n",
+				domainName,
+			)
+			continue
+		}
+
+		data := tmpMap["data"].(map[string]interface{})
+		tlsData := data["tls"].(map[string]interface{})
+		if tlsData["status"] != "success" {
+			if _, ok := nonSuccessCase[tlsData["status"].(string)]; !ok {
+
+				errorLogger.Printf(
+					"tls status: %s for %s\n", tlsData["status"].(string), domainName,
+				)
+			}
+			nonSuccessCase[tlsData["status"].(string)] = true
+			continue
+		}
+		toCert := tlsData["result"].(map[string]interface{})
+		toCert = toCert["handshake_log"].(map[string]interface{})
+		toCert = toCert["server_certificates"].(map[string]interface{})
+		cert := toCert["certificate"].(map[string]interface{})
+		certRaw := cert["raw"].(string)
+		decoded, err := base64.StdEncoding.DecodeString(certRaw)
+		if err != nil {
+			errorLogger.Printf("base64.Decode of cert err: %v\n", err)
+			continue
+		}
+		x509Cert, err := x509.ParseCertificate(decoded)
+		if err != nil {
+			errorLogger.Printf("x509.ParseCertificate of cert err: %v\n", err)
+			continue
+		}
+		err = x509Cert.VerifyHostname(domainName)
+		if err != nil {
+			errorLogger.Printf("cert doesn't match domain for %s\n", domainName)
+		}
+		certPool := x509.NewCertPool()
+		var chain []interface{}
+		if toCert["chain"] != nil {
+			chain = toCert["chain"].([]interface{})
+		}
+
+		for ind, mInterface := range chain {
+			// infoLogger.Printf("chain index: %d\n", ind)
+			raw := mInterface.(map[string]interface{})["raw"]
+			chainDecoded, err := base64.StdEncoding.DecodeString(raw.(string))
+			if err != nil {
+				errorLogger.Printf("base64.Decode of chain ind %d err: %v\n", ind, err)
+				continue
+			}
+
+			chainCert, err := x509.ParseCertificate(chainDecoded)
+			if err != nil {
+				errorLogger.Printf("x509.ParseCertificate for chain ind %d err: %v\n", ind, err)
+				continue
+			}
+			certPool.AddCert(chainCert)
+		}
+		_, err = x509Cert.Verify(x509.VerifyOptions{Intermediates: certPool})
+		if err != nil {
+			errorLogger.Printf("cert isn't valid for %s, %v\n", domainName, err)
+			continue
+		}
+		drm[domainName].HasTLS = true
+	}
+}
+
+func technicalRequirements(drm DomainResultsMap, v4Path, v6Path, tlsPath string) {
+	infoLogger.Printf("Checking domains for v4 addresses\n")
+	// read in results of v4 check
+	mergeAddressResults(drm, v4Path, "v4")
+	infoLogger.Printf("Sample Result: %#v\n", drm["google.com"])
+	infoLogger.Printf("Checking domains for v6 addresses\n")
+	// read in results of v6 check
+	mergeAddressResults(drm, v6Path, "v6")
+	infoLogger.Printf("Sample Result: %#v\n", drm["google.com"])
+	// read in results of tls check
+	mergeTLSResults(drm, tlsPath)
+	infoLogger.Printf("Sample Result: %#v\n", drm["google.com"])
+}
+
+func checkBlockedLists(drm DomainResultsMap, citizenlabGlobal, citizenlabCountry string) {
+	if len(citizenlabGlobal) == 0 {
+		errorLogger.Printf("Citizen lab global list is empty, skipping.")
+	} else {
+		citizenlabMap := getBlocked(citizenlabGlobal)
+		updateDRM(drm, citizenlabMap, "citizenlab global")
+		infoLogger.Printf("Sample Result: %#v\n", drm["google.com"])
+	}
+	if len(citizenlabCountry) == 0 {
+		errorLogger.Printf("Citizen lab country list is empty, skipping.")
+	} else {
+		citizenlabMap := getBlocked(citizenlabCountry)
+		updateDRM(drm, citizenlabMap, "citizenlab country")
+		infoLogger.Printf("Sample Result: %#v\n", drm["google.com"])
+	}
+}
+
+func getTechRequirements(drm DomainResultsMap, path string) {
+	file, err := os.Open(path)
+	if err != nil {
+		errorLogger.Fatalf("Can't open file, %s, %v\n", path, err)
+	}
+	defer file.Close()
+
+	bs, err := ioutil.ReadAll(file)
+	if err != nil {
+		errorLogger.Fatalf("ioutil.Readall err on %s: %v\n", path, err)
+	}
+	var drSlice []*DomainResults
+	err = json.Unmarshal(bs, &drSlice)
+	if err != nil {
+		errorLogger.Printf("json.Unmarshal error: %v\n", err)
+	}
+
+	for _, dr := range drSlice {
+		drm[dr.Domain] = dr
+	}
+}
+
 func main() {
 	dataPrefix := "../../data"
 	infoLogger = log.New(
@@ -287,28 +411,48 @@ func main() {
 	)
 
 	countryCode := flag.String("c", "", "Country code, used to save file")
-	// Currently using Tranco lists which take a significant amount of time to
-	// fully load, so we will load 100 at a time, and only more if needed
-	popularityPath := flag.String(
-		"p",
+	// // Currently using Tranco lists which take a significant amount of time to
+	// // fully load, so we will load 100 at a time, and only more if needed
+	v4Path := flag.String(
+		"v4",
 		"",
-		"Path to file listing domains by popularity",
+		"Path to file containing zdns results for v4",
 	)
-	cap := flag.Int(
-		"cap",
-		-1,
-		"Maximum number of domains to read from popular file",
-	)
-	blockedPath := flag.String(
-		"b",
+	v6Path := flag.String(
+		"v6",
 		"",
-		"Path to file containing special domains, possibly blocked",
+		"Path to file containing zdns results for v6",
 	)
-	numWorkers := flag.Int(
-		"w",
-		5,
-		"Number of separate goroutines to do look-ups",
+	tlsPath := flag.String(
+		"tls",
+		"",
+		"Path to file containing zgrab2 results for tls",
 	)
+	techPath := flag.String(
+		"tech",
+		"",
+		"Path to file containing technical requirements results",
+	)
+	// cap := flag.Int(
+	// 	"cap",
+	// 	-1,
+	// 	"Maximum number of domains to read from popular file",
+	// )
+	clgPath := flag.String(
+		"cit-lab-global",
+		"",
+		"Path to file containing special domains of interest globally",
+	)
+	clcPath := flag.String(
+		"cit-lab-country",
+		"",
+		"Path to file containing special domains of interest to a specific country",
+	)
+	// numWorkers := flag.Int(
+	// 	"w",
+	// 	5,
+	// 	"Number of separate goroutines to do look-ups",
+	// )
 	// blockedNum := flag.Int(
 	// 	"n",
 	// 	-1,
@@ -319,66 +463,44 @@ func main() {
 	// 	-1,
 	// 	"Number of unblocked domains to print, (negative number means grab all)",
 	// )
-
-	domResultsChan := make(chan *DomainResults)
-	interestingChan := make(chan InterestingMap)
-	domInChan := make(chan string)
-	counterChan := make(chan string)
-	var wg sync.WaitGroup
-
 	flag.Parse()
-	file, err := os.Open(*popularityPath)
-	if err != nil {
-		errorLogger.Fatalf(
-			"Error opening popularity file, %s, exiting: %v\n",
-			*popularityPath,
-			err,
+
+	domainResultsMap := make(DomainResultsMap)
+	if len(*v4Path) == 0 || len(*v6Path) == 0 || len(*tlsPath) == 0 {
+		infoLogger.Printf("One of the technical details paths was empty.\n")
+		infoLogger.Printf("Trying the tech path\n")
+		if len(*techPath) == 0 {
+			errorLogger.Fatalln(
+				"Additionlly the technical requirements path is empty. " +
+					"One must be filled in to run\n",
+			)
+		}
+
+		getTechRequirements(domainResultsMap, *techPath)
+	} else {
+		technicalRequirements(domainResultsMap, *v4Path, *v6Path, *tlsPath)
+		writeToFile(
+			domainResultsMap,
+			fmt.Sprintf("%s/top-1m-tech-details.json", dataPrefix),
 		)
 	}
-	defer file.Close()
-	go domResults(domResultsChan, interestingChan, counterChan, &wg)
-	// go counter(counterChan)
-	scanner := bufio.NewScanner(file)
-	for i := 0; i < *numWorkers; i++ {
-		go domChecker(domInChan, domResultsChan)
-	}
 
-	counter := 0
-	for scanner.Scan() {
-		text := scanner.Text()
-		split := strings.Split(text, ",")
-		wg.Add(1)
-		counter++
-		// counterChan <- split[1]
-		domInChan <- split[1]
-		// go checkDom(domResultsChan, split[1])
-		if *cap > 0 && counter >= *cap {
-			break
-		}
-		if counter%100 == 0 {
-			time.Sleep(time.Duration(5) * time.Second)
-		}
-	}
-	infoLogger.Printf(
-		"read in all %d popular domains. Waiting for interestingness\n", counter,
-	)
-	wg.Wait()
-	close(domResultsChan)
-	close(domInChan)
-	close(counterChan)
-	interestingMap := <-interestingChan
-	// for dom := range interestingMap {
-	// 	infoLogger.Printf("Interesting domain: %s\n", dom)
-	// }
-	infoLogger.Printf("Getting 'blocked' domains from %s\n", *blockedPath)
-	blockedDoms := getBlocked(*blockedPath)
-	updateInterestingMap(interestingMap, blockedDoms)
+	checkBlockedLists(domainResultsMap, *clgPath, *clcPath)
+	if len(*countryCode) != 0 {
+		writeToFile(
+			domainResultsMap,
+			fmt.Sprintf(
+				"%s/%s-top-1m-ripe-ready.json",
+				dataPrefix,
+				*countryCode,
+			),
+		)
 
-	if len(*countryCode) == 0 {
-		errorLogger.Fatalf("Need to provide country code (-c) to save to file\n")
+	} else {
+		errorLogger.Printf("No country code provided, saving to a generic file")
+		writeToFile(
+			domainResultsMap,
+			fmt.Sprintf("%s/top-1m-ripe-ready.json", dataPrefix),
+		)
 	}
-	outPath := fmt.Sprintf("%s/%s_interesting_domains.dat", dataPrefix, *countryCode)
-
-	infoLogger.Printf("Writing interesting map to %s\n", outPath)
-	writeToFile(interestingMap, outPath)
 }
