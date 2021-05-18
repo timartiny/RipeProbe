@@ -82,6 +82,23 @@ func writeProbesToFile(path string, probes []string) {
 	}
 }
 
+func getIDs(path string) []string {
+	var ret []string
+	file, err := os.Open(path)
+	if err != nil {
+		errorLogger.Fatalf("Error opening file: %s, %v\n", path, err)
+	}
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		ret = append(ret, scanner.Text())
+	}
+
+	infoLogger.Printf("Returning %d probe ids\n", len(ret))
+
+	return ret
+}
+
 func getNIDs(num int, path string) []string {
 	var ret []string
 	file, err := os.Open(path)
@@ -107,10 +124,7 @@ func getNIDs(num int, path string) []string {
 func getProbeIDs(path, countryCode string, num int) []string {
 	var ret []string
 	if len(path) > 0 {
-		ret = getNIDs(
-			num,
-			path,
-		)
+		ret = getIDs(path)
 	} else {
 		nProbes := getNProbesNotCountry(num)
 		for _, probe := range nProbes {

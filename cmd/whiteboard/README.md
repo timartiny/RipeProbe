@@ -9,5 +9,5 @@ This script will run the "whiteboard" experiment:
 
 Usage:
 ```
-./whiteboard -c <country code> -n <number of probes> [-p <path to file containing probe IDs>] -q <path to query domains> -r <path to resolver ips>
+./whiteboard -c <country code> {-n <number of probes> | -p <path to file containing probe IDs>} -q <path to query domains> -r <path to resolver ips>
 ```
