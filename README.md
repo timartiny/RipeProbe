@@ -78,6 +78,19 @@ measurement IDs i.e., if the first measurment in the list is 30250495 and the
 last is 30250522 then it will create the directory `data/30250495-30250522/` to
 store all the measurement results.
 
+### Parse Result
+
+Next the results need to be merged back into the lookup file. Use the
+`./parseresults` script to do this.
+
+```bash
+./parseresults -f data/<country_code>_lookup.json --id data/Ids-<timestamp>
+```
+
+### Resolver List
+
+Massive TODO
+
 ## Querylist
 
 In order to determine which domains might be interesting to scan for we use
