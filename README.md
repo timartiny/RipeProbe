@@ -78,7 +78,7 @@ measurement IDs i.e., if the first measurment in the list is 30250495 and the
 last is 30250522 then it will create the directory `data/30250495-30250522/` to
 store all the measurement results.
 
-### Parse Result
+### Parse Results
 
 Next the results need to be merged back into the lookup file. Use the
 `./parseresults` script to do this.
@@ -102,3 +102,10 @@ directory.
 ## InCountryLookup
 
 To use domains hosted in a country as resolvers we need to know the IPs associated with the domains. `inCountryLookup` will do this when specified with a country. More documentation can be found in [the runexperiment directory](cmd/runexperiment).
+
+## ParseResults
+
+This will combine the brief file manually created that lists domains in JSON
+with the results of RIPE Atlas Measurements in order to create a resolver list.
+
+More info can be found in [the parseresults directory](cmd/parseresults).
