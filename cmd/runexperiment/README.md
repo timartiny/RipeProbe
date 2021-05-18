@@ -37,7 +37,7 @@ the whiteboard experiment.
 
 While there is more capability with this script due to early visions for the experiment, the current usage is usually simpler:
 
-`./runexperiment --apiKey <key> -c <country_code> --nointersect --noExtraDomains --nolookup`
+`./inCountryLookup --apiKey <key> -c <country_code> --nointersect --noExtraDomains --nolookup`
 
 and assumes that the domains to lookup are in a file `data/<country_code>_lookup.json` with the form of 
 
