@@ -347,7 +347,7 @@ func datToCSV(datFile, csvFile string) {
 }
 
 func main() {
-	dataFilePrefix = "../../data"
+	dataFilePrefix = "data"
 	countryCode := flag.String(
 		"c",
 		"",

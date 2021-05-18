@@ -25,3 +25,22 @@ Usage of ./runexperiment:
   -noprobe
         Will stop script from looking for probes from given country
 ```
+
+## Use in overall experiment
+
+This code will look for probes in a given country then use those probes to
+resolve domains.
+
+As such it is more useful in our overall experiment for finding the IPs of
+domains that are hosted in the country that can be used as "domain resolvers" in
+the whiteboard experiment.
+
+While there is more capability with this script due to early visions for the experiment, the current usage is usually simpler:
+
+`./runexperiment --apiKey <key> -c <country_code> --nointersect --noExtraDomains --nolookup`
+
+and assumes that the domains to lookup are in a file `data/<country_code>_lookup.json` with the form of 
+
+```json
+[{"domain":<domain_name>},{"domain":<domain_name_2>}]
+```
