@@ -91,6 +91,35 @@ Next the results need to be merged back into the lookup file. Use the
 
 Massive TODO
 
+### Probe Selector
+
+Massive TODO
+
+### Whiteboard Experiment
+
+Once all the probes are selected, the resolvers are chosen, and the domains are
+listed we can run the white board experiment. Run:
+
+```bash
+./whiteboard --apiKey <api_key> -c <country_code> -p <path_to_probe_ids> -r <path_to_resolvers_file> -q <path_to_query_domains>
+```
+
+This will schedule numerous RIPE Atlas measurments. Note that the script will
+follow the no more than 100 concurrent measurment rate-limit but does not check
+others. Measurments may be scheduled then not run.
+
+All the measurment IDs are saved in
+`data/Whiteboard-Ids-<country_code>-<timestamp>`.
+
+### Fetch results (again)
+
+No change here but this time you run:
+
+```bash
+./fetchMeasurementResults.sh -a <api_key> -f data/Whiteboard-Ids-<country_code>-<timestamp>
+```
+
+
 ## Querylist
 
 In order to determine which domains might be interesting to scan for we use
@@ -101,7 +130,10 @@ directory.
 
 ## InCountryLookup
 
-To use domains hosted in a country as resolvers we need to know the IPs associated with the domains. `inCountryLookup` will do this when specified with a country. More documentation can be found in [the runexperiment directory](cmd/runexperiment).
+To use domains hosted in a country as resolvers we need to know the IPs
+associated with the domains. `inCountryLookup` will do this when specified with
+a country. More documentation can be found in [the runexperiment
+directory](cmd/runexperiment).
 
 ## ParseResults
 
@@ -109,3 +141,9 @@ This will combine the brief file manually created that lists domains in JSON
 with the results of RIPE Atlas Measurements in order to create a resolver list.
 
 More info can be found in [the parseresults directory](cmd/parseresults).
+
+## Whiteboard
+
+This will run the goal of this repo, *The Whiteboard Experiment*. 
+
+More info can be found in [the whiteboard directory](cmd/whiteboard).

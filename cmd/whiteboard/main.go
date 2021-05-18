@@ -218,7 +218,7 @@ func batchDomains(fullList []string, size int) [][]string {
 
 func main() {
 	SKIPCOUNTRIES = []string{"CN", "IR", "RU", "SA", "KR", "IN", "PK", "EG", "AR", "BR"}
-	dataPrefix = "../../data"
+	dataPrefix = "data"
 	numProbes := flag.Int("n", 0, "Number of probes to grab")
 	countryCode := flag.String("c", "", "Country code to exclude from probes")
 	probesPath := flag.String("p", "", "Path to file containing list of probe Ids")
