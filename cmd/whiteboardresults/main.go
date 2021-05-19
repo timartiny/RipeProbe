@@ -336,7 +336,7 @@ func trimBadProbes(fullData IDtoResults) []results.ProbeResult {
 }
 
 func main() {
-	dataPrefix = "../../data"
+	dataPrefix = "data"
 	measIDsFile := flag.String("m", "", "File containing all measurement IDs")
 	resolverFile := flag.String("r", "", "Path to file containing resolvers")
 	flag.Parse()

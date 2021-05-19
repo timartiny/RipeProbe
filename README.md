@@ -119,6 +119,20 @@ No change here but this time you run:
 ./fetchMeasurementResults.sh -a <api_key> -f data/Whiteboard-Ids-<country_code>-<timestamp>
 ```
 
+This will create a subdirectory in the `data` directory such as
+`data/30251621-30251733/`
+
+### Whiteboard Results
+
+To get *The Whiteboard Experiment* results into a form we can use we run:
+
+```bash
+./whiteboardresults -m data/Whiteboard-Ids-<country_code>-<timestamp> -r data/<country_code>_resolver_ips.dat
+```
+
+This will create
+`data/<measurement_id1>-<measurement_id2>/Whiteboard_results<measurement_id1>-<measurement_id2>.json`
+
 
 ## Querylist
 
