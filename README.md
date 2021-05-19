@@ -133,6 +133,13 @@ To get *The Whiteboard Experiment* results into a form we can use we run:
 This will create
 `data/<measurement_id1>-<measurement_id2>/Whiteboard_results<measurement_id1>-<measurement_id2>.json`
 
+### v4 vs v6
+
+Once the Whiteboard Results are collated into a file, we can compare the results between requests for v4 and v6 addresses. This script will print the results:
+
+```bash
+./v4vsv6 -r data/<meas_id1>-<meas_id2>/Whiteboard_results<meas_id1>-<meas_id2>.json -u "<string of comma separated domains to considered 'unblocked'>"
+```
 
 ## Querylist
 
@@ -161,3 +168,14 @@ More info can be found in [the parseresults directory](cmd/parseresults).
 This will run the goal of this repo, *The Whiteboard Experiment*. 
 
 More info can be found in [the whiteboard directory](cmd/whiteboard).
+
+## Whiteboard Results
+
+This will parse the RIPE Atlas measurment results into a JSON file of the
+important bits. More info can be found in [the whiteboardresults
+directory](cmd/whiteboardresults).
+
+## v4 vs v6
+
+This will look at the results of a Whitboard Experiment and print a table
+summarizing the results breaking v4 requests separate from v6 requests.
