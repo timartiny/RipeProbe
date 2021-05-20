@@ -91,6 +91,16 @@ Next the results need to be merged back into the lookup file. Use the
 
 Massive TODO
 
+This step is not implemented yet, but should be in the following steps:
+
+1. Create a list of domains that are hosted in the country, using inCountryLookup throuhg parseresults above.
+2. Choose sufficient number of both v4 and v6 addresses.
+3. Get a list of Open Resolvers (both v4 and v6 addresses) hosted in the country
+4. Get a list of uncensored domains that have v4 and v6 addresses by the country (could be list above, should be about 5 domains)
+5. For each resolver IP run [ZDNS](https://github.com/zmap/zdns) using it as a resolver for each of the domains from step 4.
+6. Verify each resolved domain A and AAAA record (using [ZGrab](https://github.com/zmap/zgrab2)'s TLS module (might need to locally verify certs).
+7. Include sufficient number of Open Resolvers in the country that provide valid v4 and v6 addresses for uncensored domains.
+
 ### Probe Generator
 
 This script will find all RIPE Atlas probes that are not in our list of censored
