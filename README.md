@@ -93,7 +93,7 @@ Massive TODO
 
 This step is not implemented yet, but should be in the following steps:
 
-1. Create a list of domains that are hosted in the country, using inCountryLookup throuhg parseresults above.
+1. Create a list of domains that are hosted in the country, using inCountryLookup through parseresults above.
 2. Choose sufficient number of both v4 and v6 addresses.
 3. Get a list of Open Resolvers (both v4 and v6 addresses) hosted in the country
 4. Get a list of uncensored domains that have v4 and v6 addresses by the country (could be list above, should be about 5 domains)
