@@ -91,9 +91,29 @@ Next the results need to be merged back into the lookup file. Use the
 
 Massive TODO
 
-### Probe Selector
+### Probe Generator
 
-Massive TODO
+This script will find all RIPE Atlas probes that are not in our list of censored
+countries:
+
+* China
+* Iran
+* Russia
+* Saudi Arabia
+* South Korea
+* India
+* Pakistan
+* Egypt
+* Argentina
+* Brazil
+
+Has been connected for at least a week, has a v4 and v6 address and does not
+share a v4 or v6 ASN with any other probe. This list might have over 1000 probes
+and might need to be filtered further.
+
+```bash
+./probegenerator
+```
 
 ### Whiteboard Experiment
 
