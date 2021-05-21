@@ -13,6 +13,12 @@ countries to resolve censored and uncensored domains.
 
 There are many steps to this process which this document will present in order.
 
+All of the tools for this workflow can be made with 
+
+```bash
+make
+```
+
 ### Run querylist
 
 The first step is to collect info on popular domains in the world, filtered through the Citizen Lab data.
