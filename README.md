@@ -95,17 +95,37 @@ Next the results need to be merged back into the lookup file. Use the
 
 ### Resolver List
 
+There are two types of resolvers in this experiment, open resolvers (i.e. actual resolvers online) and domains hosted in a country that are NOT actually resolvers. 
+
+The domains (used as resolvers) will help us detect bi-directional censorship.
+
+To generate the list of open resolvers:
+
+1. Get a list of all IPv4 addresses that listen on port 53 (from Censys)
+2. Host a domain that only has an AAAA record with a Name Server that you control (and only has a IPv6 address open to the public)
+3. On the box that runs the Name Server, run tcpdump recording all requests.
+4. Run the ./probe script (not in repo) which will take all of the IPv4 resolvers (from Step 1) and make a AAAA record request for <v4-ip>.<domain>
+5. Take the PCAP from the box running the Name Server and extract which IPv6 addresses requested an AAAA record for which IPv4 address (from encoded request in Step 4.)
+6. Make a list of single resolvers (there will be a lot of IPv4 addresses that use the same IPv6 resolver, so choose one).
+7. Get country listing for the single resolver pairs, should look like <v6 address> <v4 address> <ISO country code>.
+8. For each address (both v6 and v4) do an A record lookup for a domain that only has a single IPv4 address and an AAAA record lookup for a domain that only have a single IPv6 address.
+9. Remove from the list all lines that contain an IP that either:
+	* didn't respond
+	* gave the wrong IPv4 address
+	* gave the wrong IPV6 address
+10. Save the results.
+
+The lastest collection of IPs was generated on August 30, 2021, and is saved in `data/aug-30-2-single-resolvers-country-sorted` (all resolvers, Step 7.) and `data/aug-30-2-single-resolvers-country-correct-sorted` (All correct resolver pairs, Step 10.)
+
+
 Massive TODO
 
 This step is not implemented yet, but should be in the following steps:
 
 1. Create a list of domains that are hosted in the country, using inCountryLookup through parseresults above.
 2. Choose sufficient number of both v4 and v6 addresses.
-3. Get a list of Open Resolvers (both v4 and v6 addresses) hosted in the country
-4. Get a list of uncensored domains that have v4 and v6 addresses by the country (could be list above, should be about 5 domains)
-5. For each resolver IP run [ZDNS](https://github.com/zmap/zdns) using it as a resolver for each of the domains from step 4.
-6. Verify each resolved domain A and AAAA record (using [ZGrab](https://github.com/zmap/zgrab2)'s TLS module (might need to locally verify certs).
-7. Include sufficient number of Open Resolvers in the country that provide valid v4 and v6 addresses for uncensored domains.
+3. Get a list of Open Resolvers (above)
+4. Create a list of domains hosted in the country (as false resolvers) and Open Resolver IPs
 
 ### Probe Generator
 
