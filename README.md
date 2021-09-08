@@ -19,16 +19,31 @@ All of the tools for this workflow can be made with
 make
 ```
 
+### Get Datafiles
+
+We assume that the `top-1m.csv` file exits in the `data/` directory from Tranco.
+We'll need to run `zdns` and `zgrab2` on this file:
+
+```
+cat data/top-1m.csv | ./zdns A --alexa --output-file /data/v4-top-1m.json
+cat data/top-1m.csv | ./zdns AAAA --alexa --output-file /data/v6-top-1m.json
+cat data/top-1m.csv | awk -F"," '{print $2}' | ./zgrab2 -o /data/tls-top-1m.json tls
+```
+
 ### Run querylist
 
-The first step is to collect info on popular domains in the world, filtered through the Citizen Lab data.
+The first step is to collect info on popular domains in the world, filtered
+through the Citizen Lab data. This will require `/data/v4-top-1m.json`,
+`/data/v6-top-1m.json` and `/data/tls-top-1m.json`, at the very least the TLS
+one should be up to day otherwise the script will say no website has TLS due to
+out of date certificates.
 
 ```bash
-./querylist  --v4 data/v4-top-1m.json --v6 data/v6-top-1m.json --tls data/tls-top-1m.json/ --cit-lab-global data/global.csv --cit-lab-country data/<country_code>.csv -c <country_code>
+./querylist  --v4 data/v4-top-1m.json --v6 data/v6-top-1m.json --tls data/tls-top-1m.json --cit-lab-global data/global.csv --cit-lab-country data/<country_code>.csv -c <country_code>
 ```
 
 This will generate both `data/top-1m-tech-details.json` (which can be use for
-future runs with other countries which can be use with the `--tech` flag instead
+future runs with other countries which can be used with the `--tech` flag instead
 of the `--v4, --v6, --tls` flags) and
 `data/<country_code>-top-1m-ripe-ready.json` which will provide information on
 which domains are of interest globally as well as to the provided country.

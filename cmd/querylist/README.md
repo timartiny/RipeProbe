@@ -37,7 +37,7 @@ This will generate `../../data/top-1m-tech-details.json`.
 ### Including Citizen Lab details:
 
 ```bash
-./querylist --tech ../../data/top-1m-tech-details.json --cit-lab-global ../../data/global.csv --cit-lab-country ../../cn.csv -c CN
+./querylist --tech ../../data/top-1m-tech-details.json --cit-lab-global ../../data/global.csv --cit-lab-country ../../data/cn.csv -c CN
 ```
 
 This will generate `../../data/CN-top-1m-ripe-ready.json`

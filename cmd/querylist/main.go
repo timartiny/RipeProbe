@@ -67,6 +67,8 @@ func strip(url string) string {
 	var hostAndPath string
 	if protoIndex != -1 {
 		hostAndPath = url[protoIndex+3:]
+	} else {
+		hostAndPath = url
 	}
 	wwwIndex := strings.Index(hostAndPath, "www.")
 	if wwwIndex != -1 {
@@ -272,7 +274,11 @@ func mergeTLSResults(drm map[string]*DomainResults, path string) {
 		var tmpMap map[string]interface{}
 		l := scanner.Text()
 		json.Unmarshal([]byte(l), &tmpMap)
-		domainName := tmpMap["domain"].(string)
+		domainName, ok := tmpMap["domain"].(string)
+		if !ok {
+			errorLogger.Printf("Couldn't extract domain name: %v\n", tmpMap)
+			continue
+		}
 		if _, ok := drm[domainName]; !ok {
 			errorLogger.Printf(
 				"domainName: %s, not already in drm, skipping for now, should "+
@@ -354,6 +360,7 @@ func technicalRequirements(drm DomainResultsMap, v4Path, v6Path, tlsPath string)
 	mergeAddressResults(drm, v6Path, "v6")
 	infoLogger.Printf("Sample Result: %#v\n", drm["google.com"])
 	// read in results of tls check
+	infoLogger.Printf("Checking domains for valid TLS certs\n")
 	mergeTLSResults(drm, tlsPath)
 	infoLogger.Printf("Sample Result: %#v\n", drm["google.com"])
 }
