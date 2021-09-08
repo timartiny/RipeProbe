@@ -131,17 +131,25 @@ To generate the list of open resolvers:
 	* gave the wrong IPV6 address
 10. Save the results.
 
-The lastest collection of IPs was generated on August 30, 2021, and is saved in `data/aug-30-2-single-resolvers-country-sorted` (all resolvers, Step 7.) and `data/aug-30-2-single-resolvers-country-correct-sorted` (All correct resolver pairs, Step 10.)
+The lastest collection of IPs was generated on August 30, 2021, and is saved in
+`data/aug-30-2-single-resolvers-country-sorted` (all resolvers, Step 7.) and
+`data/aug-30-2-single-resolvers-country-correct-sorted` (All correct resolver
+pairs, Step 10.)
 
+After the list of correct open resolvers is made you can run:
+```
+./resolverlist -c <country_code> --lookup <path_to_lookup_file> --out <path_to_save_resolvers> --resolvers <path_from_above>
+```
 
-Massive TODO
+Sample usage:
+```
+/resolverlist -c CN --lookup data/CN_lookup-sept-8-full.json --out data/CN_resolver_ips.dat --resolvers data/aug-30-2-single-resolvers-country-correct-sorted
+```
 
-This step is not implemented yet, but should be in the following steps:
+You can sort the resolver ips by domain/openresolver using `sort -k 2
+data/CN_resolver_ips.dat > data/tmp`
 
-1. Create a list of domains that are hosted in the country, using inCountryLookup through parseresults above.
-2. Choose sufficient number of both v4 and v6 addresses.
-3. Get a list of Open Resolvers (above)
-4. Create a list of domains hosted in the country (as false resolvers) and Open Resolver IPs
+See [resolverlist directory](cmd/resolverlist) for more specific readme.
 
 ### Probe Generator
 
