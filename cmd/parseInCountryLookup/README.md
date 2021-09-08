@@ -5,5 +5,5 @@ specific lookup file, for `resolverlist` script to use.
 
 Usage:
 ```bash
-./parseresults -f <path_to_lookup_file> --id <path_to_ids>
+./parseresults --in <path_to_read_lookup_file> --out <path_to_write_lookup_file> --ids <path_to_ids>
 ```

@@ -100,13 +100,13 @@ IDs i.e., if the first measurment in the list is 30250495 and the last is
 30250522 then it will create the directory `data/30250495-30250522/` to store
 all the measurement results.
 
-### Parse Results
+### Parse In Country Lookup Results
 
 Next the results need to be merged back into the lookup file. Use the
-`./parseresults` script to do this.
+`./parseInCountryLookup` script to do this.
 
 ```bash
-./parseresults -f data/<country_code>_lookup.json --id data/Ids-<timestamp>
+./parseInCountryLookup --in data/<country_code>_lookup.json --out data/<country_code>-<date>_lookup.json --ids data/Ids-<timestamp>
 ```
 
 ### Resolver List

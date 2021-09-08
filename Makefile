@@ -1,6 +1,6 @@
 GO=go
 
-all: querylist inCountryLookup parseresults probegenerator whiteboard whiteboardresults v4vsv6
+all: querylist inCountryLookup parseInCountryLookup probegenerator whiteboard whiteboardresults v4vsv6
 
 querylist: cmd/querylist/main.go
 	cd cmd/querylist/ && $(GO) build -o querylist main.go && mv querylist ../../
@@ -8,8 +8,8 @@ querylist: cmd/querylist/main.go
 inCountryLookup: cmd/inCountryLookup/main.go cmd/inCountryLookup/go.mod cmd/inCountryLookup/go.sum
 	cd cmd/inCountryLookup/ && $(GO) build -o inCountryLookup main.go && mv inCountryLookup ../../
 
-parseresults: cmd/parseresults/main.go cmd/parseresults/go.mod cmd/parseresults/go.sum
-	cd cmd/parseresults && $(GO) build -o parseresults main.go && mv parseresults ../../
+parseInCountryLookup: cmd/parseInCountryLookup/main.go cmd/parseInCountryLookup/go.mod cmd/parseInCountryLookup/go.sum
+	cd cmd/parseInCountryLookup && $(GO) build -o parseInCountryLookup main.go && mv parseInCountryLookup ../../
 
 probegenerator: cmd/probegenerator/main.go
 	cd cmd/probegenerator && $(GO) build -o probegenerator main.go && mv probegenerator ../../
@@ -26,4 +26,4 @@ v4vsv6: cmd/v4vsv6/main.go cmd/v4vsv6/go.mod
 .PHONY: clean all
 
 clean:
-	rm -f querylist inCountryLookup parseresults whiteboard whiteboardresults v4vsv6
+	rm -f querylist inCountryLookup parseInCountryLookup whiteboard whiteboardresults v4vsv6

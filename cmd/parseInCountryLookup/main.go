@@ -154,8 +154,9 @@ func getMeasIDs(path string) []string {
 
 func main() {
 	dataPrefix = "data"
-	measIDPath := flag.String("id", "", "Path to measurement IDs file")
-	jsonPath := flag.String("f", "", "Path to JSON file that has lookup domains for associated measurement ID")
+	measIDPath := flag.String("ids", "", "Path to measurement IDs file")
+	inJSONPath := flag.String("in", "", "Path to JSON file that has lookup domains for associated measurement ID")
+	outJSONPath := flag.String("out", "", "Path to where to put full JSON results")
 	flag.Parse()
 	infoLogger = log.New(
 		os.Stderr,
@@ -168,7 +169,7 @@ func main() {
 		log.Ldate|log.Ltime|log.Lshortfile,
 	)
 
-	lookupBytes := getJSON(*jsonPath)
+	lookupBytes := getJSON(*inJSONPath)
 	var lookup []experiment.LookupResult
 	json.Unmarshal(lookupBytes, &lookup)
 	// fmt.Printf("%+v\n", lookup)
@@ -224,5 +225,5 @@ func main() {
 		}
 	}
 	// fmt.Printf("%+v\n", lookup)
-	writeJSON(*jsonPath, lookup)
+	writeJSON(*outJSONPath, lookup)
 }
