@@ -95,10 +95,10 @@ a simple bash script here:
 ./fetchMeasurementResults.sh -a <api_key> -f data/Ids-<timestamp>
 ```
 
-This will create a sub-directory in the `data` directory based on the
-measurement IDs i.e., if the first measurment in the list is 30250495 and the
-last is 30250522 then it will create the directory `data/30250495-30250522/` to
-store all the measurement results.
+This will create a sub-directory in the `data` directory based on measurement
+IDs i.e., if the first measurment in the list is 30250495 and the last is
+30250522 then it will create the directory `data/30250495-30250522/` to store
+all the measurement results.
 
 ### Parse Results
 
