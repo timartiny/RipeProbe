@@ -5,8 +5,8 @@ all: querylist inCountryLookup parseresults probegenerator whiteboard whiteboard
 querylist: cmd/querylist/main.go
 	cd cmd/querylist/ && $(GO) build -o querylist main.go && mv querylist ../../
 
-inCountryLookup: cmd/runexperiment/main.go cmd/runexperiment/go.mod cmd/runexperiment/go.sum
-	cd cmd/runexperiment/ && $(GO) build -o inCountryLookup main.go && mv inCountryLookup ../../
+inCountryLookup: cmd/inCountryLookup/main.go cmd/inCountryLookup/go.mod cmd/inCountryLookup/go.sum
+	cd cmd/inCountryLookup/ && $(GO) build -o inCountryLookup main.go && mv inCountryLookup ../../
 
 parseresults: cmd/parseresults/main.go cmd/parseresults/go.mod cmd/parseresults/go.sum
 	cd cmd/parseresults && $(GO) build -o parseresults main.go && mv parseresults ../../

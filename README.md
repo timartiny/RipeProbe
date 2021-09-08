@@ -74,16 +74,17 @@ only have domains that support v4 and v6 we will perform both A and AAAA lookups
 to ensure that both IPs are in the country. Run:
 
 ```bash
-./inCountryLookup --apiKey <key> -c <country_code> --nointersect --noExtraDomains --nolookup
+./inCountryLookup --apiKey <key> -c <country_code> 
 ```
 
 This will gather all probes in the specified country that support v4 and v6
 measurements and will randomly select 5 of them to do A and AAAA lookups with
-those probes for the provided domains (in `data/<country_code>_lookup.json`).
+those probes for the provided domains (saved in
+`data/<country_code>_lookup.json`).
 
 This will schedule a series of measurements with RIPE Atlas, and tell you the
 time they will start. It will save the IDs of the measurements in the `data`
-directory in a file `data/Ids-<timestamp>`. 
+directory in a file `data/inCountryLookup-Ids-<timestamp>`. 
 
 ### Fetch results
 
