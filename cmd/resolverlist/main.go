@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,14 +10,11 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/oschwald/geoip2-golang"
 	experiment "github.com/timartiny/RipeProbe/RipeExperiment"
 )
 
-var dataPrefix string
 var (
 	infoLogger  *log.Logger
 	errorLogger *log.Logger
@@ -107,81 +103,31 @@ func writeData(ipMap map[string]string, outPath string) {
 	}
 }
 
-func checkIPs(v6, v4 string, successChan chan<- string) {
-	r := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			d := net.Dialer{
-				Timeout: time.Millisecond * time.Duration(1000),
-			}
-			return d.DialContext(ctx, network, net.JoinHostPort(v4, "53"))
-		},
-	}
-	ip, err := r.LookupHost(context.Background(), "www.colorado.edu")
-	if err != nil {
-		errorLogger.Printf("%s non-valid resolver\n", v4)
-		return
-	}
-	v6R := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			d := net.Dialer{
-				Timeout: time.Millisecond * time.Duration(1000),
-			}
-			return d.DialContext(ctx, network, net.JoinHostPort(v6, "53"))
-		},
-	}
-	v6Ip, err := v6R.LookupHost(context.Background(), "www.colorado.edu")
-	if err != nil {
-		errorLogger.Printf("%s non-valid resolver\n", v6)
-		return
-	}
-
-	if len(ip) > 0 && len(v6Ip) > 0 {
-		successChan <- fmt.Sprintf("%s,%s", v6, v4)
-	}
-}
-
 func addResolvers(orPath string, ipMap map[string]string, cc string, num int) {
-	successChan := make(chan string)
 	orFile, err := os.Open(orPath)
 	if err != nil {
 		errorLogger.Printf("error opening file: %s, %v\n", orPath, err)
 		return
 	}
 	defer orFile.Close()
-	wg := sync.WaitGroup{}
-	wg.Add(num)
 
 	resolverDom := fmt.Sprintf("%s_Resolver", cc)
-	go func() {
-		for fullString := range successChan {
-			split := strings.Split(fullString, ",")
-			ipMap[split[0]] = resolverDom
-			ipMap[split[1]] = resolverDom
-			infoLogger.Printf("Added resolver IPs, need %d more pairs\n", num)
-			num--
-			wg.Done()
-		}
-	}()
-
 	orScanner := bufio.NewScanner(orFile)
 	for orScanner.Scan() && num > 0 {
 		split := strings.Split(orScanner.Text(), "  ")
 		if split[2] == cc {
-			go checkIPs(split[0], split[1], successChan)
+			ipMap[split[0]] = resolverDom
+			ipMap[split[1]] = resolverDom
 		}
 	}
-	wg.Wait()
-	close(successChan)
 }
 
 func main() {
-	dataPrefix = "../../data"
 	const NUMRESOLVERS = 5
-	jsonPath := flag.String("f", "", "Path to JSON file that has measurement data")
-	countryCode := flag.String("c", "", "Country code to restrict IPs to")
-	openResolverPath := flag.String("r", "", "Path to file containing open resolvers with country codes")
+	jsonPath := flag.String("lookup", "", "Path to JSON file that has measurement data")
+	countryCode := flag.String("c", "", "Country code to check IPs against")
+	openResolverPath := flag.String("resolvers", "", "Path to file containing open resolvers that are assumed to be correct, with country code")
+	outPath := flag.String("out", "", "Path to write resolver list to")
 	flag.Parse()
 	infoLogger = log.New(
 		os.Stderr,
@@ -195,10 +141,10 @@ func main() {
 	)
 	data := getData(*jsonPath)
 	ipsToDomain := getDomainsAndIPs(data)
-	removeNonCountryIPs(*countryCode, ipsToDomain, "../../data/geolite-country.mmdb")
+	removeNonCountryIPs(*countryCode, ipsToDomain, "data/geolite-country.mmdb")
 	if len(*openResolverPath) > 0 {
-		infoLogger.Printf("Now will add open resolvers, may take some time\n")
+		infoLogger.Printf("Now will add open resolvers, should be very quick\n")
 		addResolvers(*openResolverPath, ipsToDomain, *countryCode, NUMRESOLVERS)
 	}
-	writeData(ipsToDomain, fmt.Sprintf("%s/%s_resolver_ips.dat", dataPrefix, *countryCode))
+	writeData(ipsToDomain, *outPath)
 }
