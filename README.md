@@ -64,6 +64,10 @@ the data directory: `data/<country_code>_lookup.json` (such as
 [{"domain":<domain_name>},{"domain":<domain_name_2>}]
 ```
 
+For later (Whiteboard Experiment) you'll also want to create a list of domains
+that will be used in that experiment, one domain per line, probably some should
+be uncensored (as placebos) and others should be censored, as test.
+
 Then on to the next step:
 
 ### Run inCountryLookup
