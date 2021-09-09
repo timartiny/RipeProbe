@@ -99,28 +99,6 @@ func getIDs(path string) []string {
 	return ret
 }
 
-func getNIDs(num int, path string) []string {
-	var ret []string
-	file, err := os.Open(path)
-	if err != nil {
-		errorLogger.Fatalf("Error opening file: %s, %v\n", path, err)
-	}
-
-	scanner := bufio.NewScanner(file)
-	size := 0
-	for scanner.Scan() {
-		ret = append(ret, scanner.Text())
-		size++
-		if size >= num {
-			break
-		}
-	}
-
-	infoLogger.Printf("Returning %d probe ids\n", size)
-
-	return ret
-}
-
 func getProbeIDs(path, countryCode string, num int) []string {
 	var ret []string
 	if len(path) > 0 {
