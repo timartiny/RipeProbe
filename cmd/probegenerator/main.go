@@ -133,7 +133,8 @@ func main() {
 	SKIPCOUNTRIES = []string{"CN", "IR", "RU", "SA", "KR", "IN", "PK", "EG", "AR", "BR"}
 
 	infoLogger.Printf(
-		"Getting all active probes with v4 and v6 addresses from RIPE Atlas",
+		"Getting all active probes with v4 and v6 addresses from RIPE Atlas, " +
+			"this is the longest part, takes around a minute",
 	)
 	allProbes := getProbes()
 	infoLogger.Printf("number of probes: %d\n", len(allProbes))
