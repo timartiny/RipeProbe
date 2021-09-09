@@ -38,3 +38,19 @@ Usage of ./resolverlist:
   -resolvers string
         Path to file containing open resolvers that are assumed to be correct, with country code
 ```
+
+# Unique ASN
+There is also a Python script here which will print out all the unique ASN lines in the ouputted file from above
+
+```
+usage: unique_asn.py [-h] asnDB resolvers
+
+positional arguments:
+  asnDB       Path to the geoip2 ASN database
+  resolvers   Path to the resolver list file
+
+optional arguments:
+  -h, --help  show this help message and exit
+```
+
+`./unique_asn.py ../../data/GeoLite2-ASN.mmdb ../../data/<country_code>_resolvers.ips`

@@ -11,8 +11,8 @@ inCountryLookup: cmd/inCountryLookup/main.go cmd/inCountryLookup/go.mod cmd/inCo
 parseInCountryLookup: cmd/parseInCountryLookup/main.go cmd/parseInCountryLookup/go.mod cmd/parseInCountryLookup/go.sum
 	cd cmd/parseInCountryLookup && $(GO) build -o parseInCountryLookup main.go && mv parseInCountryLookup ../../
 
-resolverlist: cmd/resolverlist/main.go cmd/resolverlist/go.mod cmd/resolverlist/go.sum
-	cd cmd/resolverlist && $(GO) build -o resolverlist main.go && mv resolverlist ../../
+resolverlist: cmd/resolverlist/main.go cmd/resolverlist/go.mod cmd/resolverlist/go.sum cmd/resolverlist/unique_asn.py
+	cd cmd/resolverlist && $(GO) build -o resolverlist main.go && mv resolverlist ../../ && cp unique_asn.py ../../
 
 probegenerator: cmd/probegenerator/main.go
 	cd cmd/probegenerator && $(GO) build -o probegenerator main.go && mv probegenerator ../../
@@ -29,4 +29,4 @@ v4vsv6: cmd/v4vsv6/main.go cmd/v4vsv6/go.mod
 .PHONY: clean all
 
 clean:
-	rm -f querylist inCountryLookup parseInCountryLookup resolverlist whiteboard whiteboardresults v4vsv6
+	rm -f querylist inCountryLookup parseInCountryLookup resolverlist whiteboard whiteboardresults v4vsv6 unique_asn.py

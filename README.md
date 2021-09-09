@@ -146,6 +146,14 @@ Sample usage:
 /resolverlist -c CN --lookup data/CN_lookup-sept-8-full.json --out data/CN_resolver_ips.dat --resolvers data/aug-30-2-single-resolvers-country-correct-sorted
 ```
 
+You can filter this list to the lines that fall into unique ASNs and sort the
+data by type of resolver with: 
+
+```
+./unique_asn.py data/GeoLite2-ASN.mmdb data/CN_resolver_ips.dat | sort -k 2 >
+data/CN_resolver_ips_unique_asn_sorted.dat
+```
+
 You can sort the resolver ips by domain/openresolver using `sort -k 2
 data/CN_resolver_ips.dat > data/tmp`
 
