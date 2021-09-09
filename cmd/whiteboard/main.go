@@ -247,6 +247,14 @@ func main() {
 	startTime = startTime.Round(time.Minute * 5).Add(time.Minute * 5)
 	// endTime := startTime.Add(time.Minute * 5)
 	// measurementsPerDomain := len(resolverIPs) * 2
+	timeStr := fmt.Sprintf(
+		"%d-%02d-%02d::%02d:%02d",
+		startTime.Year(),
+		startTime.Month(),
+		startTime.Day(),
+		startTime.Hour(),
+		startTime.Minute(),
+	)
 	domainsAtOnce := 1
 	batches := batchDomains(queryDomains, domainsAtOnce)
 	infoLogger.Printf(
@@ -266,16 +274,6 @@ func main() {
 		startTime = startTime.Add(time.Minute * 20)
 		// endTime = startTime.Add(time.Minute * 5)
 	}
-	currentTime := time.Now()
-	timeStr := fmt.Sprintf(
-		"%d-%02d-%02d::%02d:%02d:%02d",
-		currentTime.Year(),
-		currentTime.Month(),
-		currentTime.Day(),
-		currentTime.Hour(),
-		currentTime.Minute(),
-		currentTime.Second(),
-	)
 
 	saveIds(measurementIDs, *apiKey, timeStr, *countryCode)
 }
