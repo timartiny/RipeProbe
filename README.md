@@ -271,6 +271,12 @@ The IP, Domain pairs are exactly what they sound like:
 ...
 ```
 
+### Verify the IP, Domain results
+
+Use Zgrab2 to get information on the IP, Domain pairings, run:
+
+`cat ip_dom_pairs | zgrab2 -o tls_ip_dom_pairs.json tls`
+
 ### Whiteboard Results
 
 To get *The Whiteboard Experiment* results into a form we can use we run:
