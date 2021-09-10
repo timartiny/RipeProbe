@@ -71,7 +71,7 @@ def simplify_single_result(probe_result: DnsResult, fp):
                             "name: {answer.name[:-1]}",
                     )
                 answers.append(answer.address)
-                ip_dom_str = f"{answer.address} {answer.name[:-1]}"
+                ip_dom_str = f"{answer.address}, {answer.name[:-1]}"
                 ip_dom_map[ip_dom_str] = True
             simplified_result["answers"] = answers
 

@@ -255,19 +255,19 @@ or
 
 Where "error" only shows up if there was one, but the "error" might be different.
 
-The IP Domain pairs are exactly what they sound like:
+The IP, Domain pairs are exactly what they sound like:
 
 ```
-31.13.83.2 dailymotion.com
-157.240.17.36 dailymotion.com
-103.240.182.55 dailymotion.com
-2001:0:0:0:0:0:1f0d:5011 dailymotion.com
-2001:0:0:0:0:0:1f0d:5111 dailymotion.com
-2001:0:0:0:0:0:629f:6c3d dailymotion.com
-162.125.32.2 dailymotion.com
-202.160.130.145 dailymotion.com
-199.96.62.75 dailymotion.com
-2001:0:0:0:0:0:2f58:3aea dailymotion.com
+31.13.83.2, dailymotion.com
+157.240.17.36, dailymotion.com
+103.240.182.55, dailymotion.com
+2001:0:0:0:0:0:1f0d:5011, dailymotion.com
+2001:0:0:0:0:0:1f0d:5111, dailymotion.com
+2001:0:0:0:0:0:629f:6c3d, dailymotion.com
+162.125.32.2, dailymotion.com
+202.160.130.145, dailymotion.com
+199.96.62.75, dailymotion.com
+2001:0:0:0:0:0:2f58:3aea, dailymotion.com
 ...
 ```
 
