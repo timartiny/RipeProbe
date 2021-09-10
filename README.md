@@ -218,6 +218,59 @@ No change here but this time you run:
 This will create a subdirectory in the `data` directory such as
 `data/30251621-30251733/`
 
+### Parse Whiteboard Experiment
+
+The raw results from RIPE Atlas are hard to read as retrieved, we only care about a subset of the data. To get the simplified results run
+
+`./parse_whiteboard_experiment.py data/Whiteboard-Ids-<country_code>-<timestamp>
+data/simplified_results_<country_code>_<timestamp>.json
+data/ip_dom_pairs_<country_code>_<timestamp>`
+
+The simplified results file will be a JSON file with two types of objects:
+
+```
+{
+	"probe_id": 9,
+	"had_error": false,
+	"resolver": "103.110.80.16",
+	"record_type": "AAAA",
+	"domain": "t66y.com",
+	"answers": [
+		"2606:4700:20:0:0:0:ac43:4af1",
+		"2606:4700:20:0:0:0:681a:aa0",
+		"2606:4700:20:0:0:0:681a:ba0"
+	]
+}
+```
+
+or
+```
+{
+    "probe_id": 38,
+    "had_error": true,
+    "error": "Timeout: 5000",
+    "resolver": "159.226.6.133"
+}
+```
+
+Where "error" only shows up if there was one, but the "error" might be different.
+
+The IP Domain pairs are exactly what they sound like:
+
+```
+31.13.83.2 dailymotion.com
+157.240.17.36 dailymotion.com
+103.240.182.55 dailymotion.com
+2001:0:0:0:0:0:1f0d:5011 dailymotion.com
+2001:0:0:0:0:0:1f0d:5111 dailymotion.com
+2001:0:0:0:0:0:629f:6c3d dailymotion.com
+162.125.32.2 dailymotion.com
+202.160.130.145 dailymotion.com
+199.96.62.75 dailymotion.com
+2001:0:0:0:0:0:2f58:3aea dailymotion.com
+...
+```
+
 ### Whiteboard Results
 
 To get *The Whiteboard Experiment* results into a form we can use we run:

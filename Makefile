@@ -1,6 +1,6 @@
 GO=go
 
-all: querylist inCountryLookup parseInCountryLookup resolverlist probegenerator whiteboard whiteboardresults v4vsv6
+all: querylist inCountryLookup parseInCountryLookup resolverlist probegenerator whiteboard parsewhiteboard whiteboardresults v4vsv6
 
 querylist: cmd/querylist/main.go
 	cd cmd/querylist/ && $(GO) build -o querylist main.go && mv querylist ../../
@@ -20,6 +20,9 @@ probegenerator: cmd/probegenerator/main.go
 whiteboard: cmd/whiteboard/main.go cmd/whiteboard/go.mod cmd/whiteboard/go.sum
 	cd cmd/whiteboard && $(GO) build -o whiteboard main.go && mv whiteboard ../../
 
+parsewhiteboard: cmd/parseWhiteboard/parse_whiteboard_experiment.py
+	cp cmd/parseWhiteboard/parse_whiteboard_experiment.py .
+
 whiteboardresults: cmd/whiteboardresults/main.go cmd/whiteboardresults/go.mod cmd/whiteboardresults/go.sum
 	cd cmd/whiteboardresults && $(GO) build -o whiteboardresults main.go && mv whiteboardresults ../../
 
@@ -29,4 +32,4 @@ v4vsv6: cmd/v4vsv6/main.go cmd/v4vsv6/go.mod
 .PHONY: clean all
 
 clean:
-	rm -f querylist inCountryLookup parseInCountryLookup resolverlist whiteboard whiteboardresults v4vsv6 unique_asn.py
+	rm -f querylist inCountryLookup parseInCountryLookup resolverlist whiteboard whiteboardresults v4vsv6 unique_asn.py parse_whiteboard_experiment.py
