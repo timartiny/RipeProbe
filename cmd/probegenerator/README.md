@@ -25,3 +25,6 @@ Usage:
 ```bash
 ./probegenerator
 ```
+It will write `data/uncensored_probes.dat` with format
+
+`<probe id> <v4 ASN> <v6 ASN>`

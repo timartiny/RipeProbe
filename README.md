@@ -187,6 +187,10 @@ and might need to be filtered further.
 ./probegenerator
 ```
 
+This will create `data/uncensored_probes.dat` with format 
+
+`<probe id> <v4 ASN> <v6 ASN>`
+
 ### Whiteboard Experiment
 
 Once all the probes are selected, the resolvers are chosen, and the domains are

@@ -69,7 +69,9 @@ func writeProbesToFile(path string, probes Probes) {
 	}
 
 	for _, probe := range probes {
-		file.WriteString(fmt.Sprintf("%d\n", probe.ID))
+		file.WriteString(
+			fmt.Sprintf("%d %d %d\n", probe.ID, probe.AsnV4, probe.AsnV6),
+		)
 	}
 }
 
@@ -144,5 +146,5 @@ func main() {
 	infoLogger.Printf("number of non-censored probes alive a week: %d\n", len(aliveNonCensoredProbes))
 	nonDuplicateAS := filterAS(aliveNonCensoredProbes)
 	infoLogger.Printf("Number of non-duplicate ASes probes: %d\n", len(nonDuplicateAS))
-	writeProbesToFile(fmt.Sprintf("%s/uncensored_probes.dat", dataPrefix), nonCensoredProbes)
+	writeProbesToFile(fmt.Sprintf("%s/uncensored_probes.dat", dataPrefix), nonDuplicateAS)
 }
