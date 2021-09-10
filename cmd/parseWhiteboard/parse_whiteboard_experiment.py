@@ -18,7 +18,7 @@ def setup_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "measurement_file", 
+        "measurement_file",
         help="Path to the file containing the list of measurement IDs",
     )
     parser.add_argument(
@@ -33,7 +33,7 @@ def setup_args() -> argparse.Namespace:
 
 def get_measurement_ids(measurement_file: str) -> List[int]:
     """
-    Takes the file containing the list of file IDs and saves them as a list of 
+    Takes the file containing the list of file IDs and saves them as a list of
     ints
     """
     ret = []
@@ -75,7 +75,7 @@ def simplify_single_result(probe_result: DnsResult, record_type: str, domain: st
                 ip_dom_map[ip_dom_str] = True
             simplified_result["answers"] = answers
 
-    fp.write(json.dumps(simplified_result))
+    fp.write(json.dumps(simplified_result) + "\n")
 
 
 def simplify_file_results(file_results: List[Dict[str, Any]], fp):
@@ -91,27 +91,19 @@ def simplify_file_results(file_results: List[Dict[str, Any]], fp):
             continue
         record_type = dns_result.responses[0].abuf.questions[0].type
         domain = dns_result.responses[0].abuf.questions[0].name[:-1]
-    for ind, probe_result in enumerate(file_results):
+    for probe_result in file_results:
         simplify_single_result(DnsResult(probe_result), record_type, domain, fp)
-        if ind != len(file_results) - 1:
-            fp.write(",")
 
 def simplify_all_results(ids: List[int], folder: str, simp_file: str):
     """
     Will read in the various results from each file and simplify them for saving
     """
     with open(simp_file, 'w') as file_pointer:
-        file_pointer.write("[")
-        for meas_ind, measurement_id in enumerate(ids):
+        for measurement_id in ids:
             with open(f"{folder}/{measurement_id}_results.json", 'r') as reader:
                 lines = reader.readlines()
-            for ind, result in enumerate(lines):
+            for result in lines:
                 simplify_file_results(json.loads(result), file_pointer)
-                if ind != len(lines) - 1:
-                    file_pointer.write(",")
-            if meas_ind != len(ids) - 1:
-                file_pointer.write(",")
-        file_pointer.write("]")
 
 def write_ip_dom_map(path: str):
     """
