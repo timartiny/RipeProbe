@@ -43,13 +43,15 @@ def get_measurement_ids(measurement_file: str) -> List[int]:
 
     return ret
 
-def simplify_single_result(probe_result: DnsResult, fp):
+def simplify_single_result(probe_result: DnsResult, record_type: str, domain: str, fp):
     """
     This will take a single result from a probe and simplify it
     """
     simplified_result = defaultdict(str)
     simplified_result["probe_id"] = probe_result.probe_id
     simplified_result["had_error"] = probe_result.is_error
+    simplified_result["record_type"] = record_type
+    simplified_result["domain"] = domain
     if probe_result.is_error:
         # in this case we can't get out whether A or AAAA was requested :(
         simplified_result["error"] = probe_result.error_message
@@ -60,15 +62,13 @@ def simplify_single_result(probe_result: DnsResult, fp):
             dns_message = ripe_response.abuf
             if len(dns_message.questions) > 1:
                 print("Got more than one question, new territory")
-            simplified_result["record_type"] = dns_message.questions[0].type
-            simplified_result["domain"] = dns_message.questions[0].name[:-1]
             answers = []
             for answer in dns_message.answers:
                 if simplified_result["domain"] != answer.name[:-1]:
                     print("MISMATCH QUESTION AND ANSWER NAME")
                     print(
                         f"question name: {simplified_result['domain']} answer "+
-                            "name: {answer.name[:-1]}",
+                            f"name: {answer.name[:-1]}",
                     )
                 answers.append(answer.address)
                 ip_dom_str = f"{answer.address}, {answer.name[:-1]}"
@@ -82,8 +82,17 @@ def simplify_file_results(file_results: List[Dict[str, Any]], fp):
     """
     This will take a singular file's results and simplify it
     """
+    # Annoyingly if there is an error you can't determine whether you requested
+    # A or AAAA records, so we loop through to find out first, then print results
+
+    for probe_result in file_results:
+        dns_result = DnsResult(probe_result)
+        if dns_result.is_error:
+            continue
+        record_type = dns_result.responses[0].abuf.questions[0].type
+        domain = dns_result.responses[0].abuf.questions[0].name[:-1]
     for ind, probe_result in enumerate(file_results):
-        simplify_single_result(DnsResult(probe_result), fp)
+        simplify_single_result(DnsResult(probe_result), record_type, domain, fp)
         if ind != len(file_results) - 1:
             fp.write(",")
 
