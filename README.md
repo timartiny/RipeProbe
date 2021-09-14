@@ -32,6 +32,8 @@ cat data/top-1m.csv | awk -F"," '{print $2}' | ./zgrab2 -o /data/tls-top-1m.json
 
 ### Run querylist
 
+GOING TO BE UPDATED SOON, THIS STEP IS BEING BROKEN INTO MULTIPLE STEPS
+
 The first step is to collect info on popular domains in the world, filtered
 through the Citizen Lab data. This will require `/data/v4-top-1m.json`,
 `/data/v6-top-1m.json` and `/data/tls-top-1m.json`, at the very least the TLS
@@ -47,6 +49,21 @@ future runs with other countries which can be used with the `--tech` flag instea
 of the `--v4, --v6, --tls` flags) and
 `data/<country_code>-top-1m-ripe-ready.json` which will provide information on
 which domains are of interest globally as well as to the provided country.
+
+### Citizen Lab Data
+
+Now to add Citizen Lab data to our struct. That is done by
+
+`./citizen_lab_data_fillin.py data/tech-details.json <path-to-citizen-lab-lists-directory> data/full-details.json`
+
+For each domain from the top 1 million this will indicate whether the domain is
+on the Citizen Lab Global list (`on_citizen_lab_global_list`) and which
+country's lists the domain is on (`citizen_lab_countries`) it will also fill in
+what category Citizen Lab has listed it under (`citizen_lab_category`).
+
+You can then sort the results with
+
+`jq -s data/full-details.json | jq "sort_by(.tranco_rank)" | jq -c ".[]" > data/full-details-sorted.json`
 
 From this list (which can be sorted by rank) you will need to manually select
 certain domains of interest. You will only want domains that support v4, v6, and
