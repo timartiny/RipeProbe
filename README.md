@@ -19,16 +19,42 @@ All of the tools for this workflow can be made with
 make
 ```
 
+## Setup
+
+The following steps need to be run one time to set up and organize all the data
+necessary for future steps that will run for each country.
+
 ### Get Datafiles
 
 We assume that the `top-1m.csv` file exits in the `data/` directory from Tranco.
-We'll need to run `zdns` and `zgrab2` on this file:
+We'll need to run `zdns` on this file. We use 4 different recursive name servers
+(Google and Cloudflare) to resolve these domains for A and AAAA records.
 
 ```
-cat data/top-1m.csv | ./zdns A --alexa --output-file /data/v4-top-1m.json
-cat data/top-1m.csv | ./zdns AAAA --alexa --output-file /data/v6-top-1m.json
-cat data/top-1m.csv | awk -F"," '{print $2}' | ./zgrab2 -o /data/tls-top-1m.json tls
+cat data/top-1m.csv | ./zdns A --alexa --name-servers=8.8.8.8,8.8.4.4,1.1.1.1,1.0.0.1 --output-file data/v4-top-1m-<date>.json
+cat data/top-1m.csv | ./zdns AAAA --alexa --name-servers=8.8.8.8,8.8.4.4,1.1.1.1,1.0.0.1 --output-file data/v6-top-1m-<date>.json
 ```
+
+Those are recursive resolvers, but the results will include CNAME records. We
+also need to try each provided IP for a TLS cert for the provided domain. To get
+the associated IP with each domain (excluding the CNAME intermediate steps, but
+including the final mapping) we run a few complicated `jq` commands:
+
+```
+cat data/v4-top-1m-<date>.json | jq -r '.name as $name | .data.answers[]? | select(.type=="A") | "\(.answer), \($name)"' > data/v4-top-1m-ip-dom-pair-<date>.dat
+cat data/v6-top-1m-<date>.json | jq -r '.name as $name | .data.answers[]? | select(.type=="AAAA") | "\(.answer), \($name)"' > data/v6-top-1m-ip-dom-pair-<date>.dat
+```
+
+Now data is in ip, domain pair lists that can be passed to ZGrab2 to get TLS certs
+
+```
+cat data/v4-top-1m-ip-dom-pair-<data>.dat | ./zgrab2 -o data/v4-tls-top-1m-<date>.json tls
+cat data/v6-top-1m-ip-dom-pair-<data>.dat | ./zgrab2 -o data/v6-tls-top-1m-<date>.json tls
+```
+The first command took around 18 minutes on `zbuff`.
+
+Those two commands will take the longest, collecting TK amount of data. Zgrab2
+will probably need `sudo` access to send TCP packets.
 
 ### Run querylist
 
