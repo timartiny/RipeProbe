@@ -13,13 +13,19 @@ class DomainDetails:
     """
 
     def __init__(self, details: Dict[str, Any]):
-        self._domain = details.get("domain")
-        self._tranco_rank = details.get("tranco_rank")
-        self._has_v4 = details.get("has_v4")
-        self._has_v6 = details.get("has_v6")
+        self._domain = details.get("domain") or ""
+        self._tranco_rank = details.get("tranco_rank") or -1
+        self._has_v4 = details.get("has_v4") or False
+        self._has_v6 = details.get("has_v6") or False
         self._on_citizen_lab_global_list = details.get("on_citizen_lab_global_list") or False
         self._citizen_lab_countries = details.get("citizen_lab_countries") or []
         self._citizen_lab_category = details.get("citizen_lab_category") or ""
+    
+    def __repr__(self):
+        """
+        Will print the JSON struct
+        """
+        return self.to_json()
 
     def get_domain(self) -> str:
         """
@@ -32,6 +38,30 @@ class DomainDetails:
         Changes the domain associated with these details
         """
         self._domain = domain
+
+    def get_has_v4(self) -> bool:
+        """
+        Returns whether the domain has a v4 address
+        """
+        return self._has_v4
+
+    def set_has_v4(self, has_v4: bool) -> None:
+        """
+        Changes whether the domain has a v4 address
+        """
+        self._has_v4 = has_v4
+
+    def get_has_v6(self) -> bool:
+        """
+        Returns whether the domain has a v6 address
+        """
+        return self._has_v6
+
+    def set_has_v6(self, has_v6: bool) -> None:
+        """
+        Changes whether the domain has a v6 address
+        """
+        self._has_v6 = has_v6
 
     def get_category(self) -> str:
         """
