@@ -48,12 +48,12 @@ cat data/v6-top-1m-<date>.json | jq -r '.name as $name | .data.answers[]? | sele
 Now data is in ip, domain pair lists that can be passed to ZGrab2 to get TLS certs
 
 ```
-cat data/v4-top-1m-ip-dom-pair-<data>.dat | ./zgrab2 -o data/v4-tls-top-1m-<date>.json tls
-cat data/v6-top-1m-ip-dom-pair-<data>.dat | ./zgrab2 -o data/v6-tls-top-1m-<date>.json tls
+cat data/v4-top-1m-ip-dom-pair-<date>.dat | ./zgrab2 -o data/v4-tls-top-1m-<date>.json tls
+cat data/v6-top-1m-ip-dom-pair-<date>.dat | ./zgrab2 -o data/v6-tls-top-1m-<date>.json tls
 ```
 The first command took around 18 minutes on `zbuff`.
 
-Those two commands will take the longest, collecting TK amount of data. Zgrab2
+Those two commands will take the longest, collecting ~23 GB of data. Zgrab2
 will probably need `sudo` access to send TCP packets.
 
 ### Run querylist
