@@ -5,64 +5,78 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
-	"flag"
-	"fmt"
-	"io/ioutil"
 	"log"
 	"net"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
+	"time"
+
+	flags "github.com/zmap/zflags"
+	"github.com/zmap/zgrab2"
 )
 
 var infoLogger *log.Logger
 var errorLogger *log.Logger
 
-// Assumes file has form: rank,domain
-// such as Tranco list
-func getNPopular(path string, needed, skip int) []string {
-	var ret []string
-	file, err := os.Open(path)
-	if err != nil {
-		errorLogger.Fatalf(
-			"Error opening popularity file, %s, exiting: %v\n",
-			path,
-			err,
-		)
-	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	for i := 0; i < skip; i++ {
-		if scanner.Scan() {
-			scanner.Text()
-		} else {
-			errorLogger.Fatalf(
-				"Not enough lines to skip %d lines, exiting\n",
-				skip,
-			)
-		}
-	}
+type ZDNSResult struct {
+	AlteredName string        `json:"altered_name,omitempty" groups:"short,normal,long,trace"`
+	Name        string        `json:"name,omitempty" groups:"short,normal,long,trace"`
+	Nameserver  string        `json:"nameserver,omitempty" groups:"normal,long,trace"`
+	Class       string        `json:"class,omitempty" groups:"long,trace"`
+	AlexaRank   int           `json:"alexa_rank,omitempty" groups:"short,normal,long,trace"`
+	Metadata    string        `json:"metadata,omitempty" groups:"short,normal,long,trace"`
+	Status      string        `json:"status,omitempty" groups:"short,normal,long,trace"`
+	Error       string        `json:"error,omitempty" groups:"short,normal,long,trace"`
+	Timestamp   string        `json:"timestamp,omitempty" groups:"short,normal,long,trace"`
+	Data        interface{}   `json:"data,omitempty" groups:"short,normal,long,trace"`
+	Trace       []interface{} `json:"trace,omitempty" groups:"trace"`
+}
 
-	for i := 0; i < needed; i++ {
-		if scanner.Scan() {
-			text := scanner.Text()
-			split := strings.Split(text, ",")
-			ret = append(ret, split[1])
-		} else {
-			errorLogger.Printf(
-				"Ran out of lines before getting %d lines, returning with %d "+
-					"lines",
-				needed,
-				len(ret),
-			)
-			return ret
-		}
-	}
+type ZDNSAnswer struct {
+	Ttl     uint32 `json:"ttl" groups:"ttl,normal,long,trace"`
+	Type    string `json:"type,omitempty" groups:"short,normal,long,trace"`
+	RrType  uint16 `json:"-"`
+	Class   string `json:"class,omitempty" groups:"short,normal,long,trace"`
+	RrClass uint16 `json:"-"`
+	Name    string `json:"name,omitempty" groups:"short,normal,long,trace"`
+	Answer  string `json:"answer,omitempty" groups:"short,normal,long,trace"`
+}
 
-	return ret
+type IPSupportsTLS map[string]bool
+
+type TLSResults struct {
+	Domain    string
+	Addresses IPSupportsTLS
+}
+
+type TLSResultsMap map[string]*TLSResults
+
+type DomainResults struct {
+	Domain                string   `json:"domain,omitempty"`
+	Rank                  int      `json:"tranco_rank,omitempty"`
+	HasV4                 bool     `json:"has_v4"`
+	HasV6                 bool     `json:"has_v6"`
+	HasV4TLS              bool     `json:"has_v4_tls"`
+	HasV6TLS              bool     `json:"has_v6_tls"`
+	CitizenLabGlobalList  bool     `json:"citizen_lab_global_list"`
+	CitizenLabCountryList []string `json:"citizen_lab_country_list"`
+}
+
+type DomainResultsMap map[string]*DomainResults
+
+type QuerylistFlags struct {
+	V4DNS               string `long:"v4_dns" description:"Path to the ZDNS results for v4 lookups" required:"true" json:"v4_dns"`
+	V6DNS               string `long:"v6_dns" description:"Path to the ZDNS results for v6 lookups" required:"true" json:"v6_dns"`
+	V4TLS               string `long:"v4_tls" description:"Path to the ZGrab results for v4 TLS banner grabs" required:"true" json:"v4_tls"`
+	V6TLS               string `long:"v6_tls" description:"Path to the ZGrab results for v6 TLS banner grabs" required:"true" json:"v6_tls"`
+	CitizenLabDirectory string `long:"citizen_lab_directory" description:"Path to the directory containing the Citizen Lab lists" required:"true" json:"citizen_lab_directory"`
+	Outfile             string `long:"out_file" description:"File to write all details to (in JSON)" required:"true" json:"out_file"`
 }
 
 // removes protocol and www. subdomains and ending slash
-func strip(url string) string {
+func stripUrl(url string) string {
 	protoIndex := strings.Index(url, "://")
 	var hostAndPath string
 	if protoIndex != -1 {
@@ -104,14 +118,16 @@ func getBlocked(path string) map[string]interface{} {
 	for scanner.Scan() {
 		line := scanner.Text()
 		url := strings.Split(line, ",")[0]
-		strippedUrl := strip(url)
+		strippedUrl := stripUrl(url)
 		ret[strippedUrl] = nil
 	}
 
 	return ret
 }
 
-func writeToFile(im DomainResultsMap, path string) {
+// writeToFile will write the results map to the provided file
+// one line of JSON at a time.
+func writeToFile(drm DomainResultsMap, path string) {
 	infoLogger.Printf("Writing to %s\n", path)
 	file, err := os.Create(path)
 	if err != nil {
@@ -119,193 +135,135 @@ func writeToFile(im DomainResultsMap, path string) {
 		os.Exit(1)
 	}
 	defer file.Close()
-	writeSlice := make([]*DomainResults, len(im))
 
-	idx := 0
-	for _, dr := range im {
-		writeSlice[idx] = dr
-		idx++
+	for _, dr := range drm {
+		bs, err := json.Marshal(dr)
+		if err != nil {
+			errorLogger.Printf("json.Marshal error: %v\n", err)
+			os.Exit(2)
+		}
+		file.WriteString(string(bs) + "\n")
 	}
 
-	bs, err := json.Marshal(&writeSlice)
+}
+
+// setupArgs grabs the commandline arguments and puts them in a usable struct
+func setupArgs(args []string) QuerylistFlags {
+	var ret QuerylistFlags
+	posArgs, _, _, err := flags.ParseArgs(&ret, args)
+
 	if err != nil {
-		errorLogger.Printf("json.Marshal error: %v\n", err)
-		os.Exit(2)
+		errorLogger.Printf("Error parsing args: %v\n", err)
+		os.Exit(1)
 	}
-	file.Write(bs)
-}
-
-type DomainResults struct {
-	Domain                string `json:"domain,omitempty"`
-	Rank                  int    `json:"tranco_rank,omitempty"`
-	HasV4                 bool   `json:"has_v4"`
-	HasV6                 bool   `json:"has_v6"`
-	HasTLS                bool   `json:"has_tls"`
-	CitizenLabGlobalList  bool   `json:"citizen_lab_global_list"`
-	CitizenLabCountryList bool   `json:"citizen_lab_country_list"`
-}
-
-type DomainResultsMap map[string]*DomainResults
-
-func updateDRM(drm DomainResultsMap, blockedDoms map[string]interface{}, list string) {
-	for dom, dr := range drm {
-		_, ok := blockedDoms[dom]
-		switch list {
-		case "citizenlab global":
-			dr.CitizenLabGlobalList = ok
-		case "citizenlab country":
-			dr.CitizenLabCountryList = ok
-		}
+	if len(posArgs) > 0 {
+		infoLogger.Printf("Extra arguments provided, but not used: %v\n", args)
 	}
+
+	return ret
 }
 
-func counter(cc <-chan string) {
-	cm := make(map[string]interface{})
-	for dom := range cc {
-		if _, ok := cm[dom]; ok {
-			delete(cm, dom)
-		} else {
-			cm[dom] = nil
-		}
-
-		if len(cm) <= 10 {
-			infoLogger.Printf("remaining doms: %v\n", cm)
-		}
-	}
-}
-
-func mergeAddressResults(drm map[string]*DomainResults, path, addressType string) {
+// addDNSResults will take a path to the DNS results (in ZDNS form) and update
+// drm.
+func addDNSResults(drm DomainResultsMap, path string) {
 	file, err := os.Open(path)
 	if err != nil {
-		errorLogger.Fatalf("os.Open err: %v\n", err)
+		errorLogger.Printf("os.Open err: %v\n", err)
+		errorLogger.Fatalln("Please provide a valid file using the --v{4,6}_dns flag")
 	}
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	unCoveredCases := make(map[string]bool)
 
 	for scanner.Scan() {
-		var tmpMap map[string]interface{}
-		var dr *DomainResults
+		var zdnsResult ZDNSResult
 		l := scanner.Text()
-		json.Unmarshal([]byte(l), &tmpMap)
-		domainName := tmpMap["name"].(string)
-		tmpRank := int(tmpMap["alexa_rank"].(float64))
-
-		// get existing or create the DomainResults
-		if d, ok := drm[domainName]; ok {
-			dr = d
-			if dr.Rank != tmpRank {
-				errorLogger.Fatalf(
-					"Rank from %s for %s (%d) is different than previously "+
-						"stored rank (%d)\n",
-					path,
-					domainName,
-					tmpRank,
-					dr.Rank,
-				)
-			}
-		} else {
-			dr = new(DomainResults)
-			dr.Domain = domainName
-			dr.Rank = tmpRank
+		json.Unmarshal([]byte(l), &zdnsResult)
+		domainName := zdnsResult.Name
+		// infoLogger.Printf("the domain name is: %s\n", domainName)
+		if _, ok := drm[domainName]; !ok {
+			// this domain is not already in the mapping, add it now.
+			tmp := new(DomainResults)
+			tmp.Domain = domainName
+			tmp.Rank = zdnsResult.AlexaRank
+			drm[domainName] = tmp
 		}
-
-		// Now look at the data section
-		data := tmpMap["data"].(map[string]interface{})
-
-		// only look at the section called answers, not interested in authorities
-		if answersInterface, ok := data["answers"]; ok {
-			answersArr := answersInterface.([]interface{})
-			for _, answerInterface := range answersArr {
-				answerMap := answerInterface.(map[string]interface{})
-				recordType := answerMap["type"].(string)
-
-				// make sure to get matching record type based on query type
-				if recordType == "A" && addressType == "v4" {
-					ipString := answerMap["answer"].(string)
-					ip := net.ParseIP(ipString)
-
-					// consider domain to have v4 if the answer is actually
-					// an ip address that can be converted to a v4 address
-					if ip != nil && ip.To4() != nil {
-						dr.HasV4 = true
-					}
-				} else if recordType == "AAAA" && addressType == "v6" {
-					ipString := answerMap["answer"].(string)
-					ip := net.ParseIP(ipString)
-
-					// consider domain to have v4 if the answer is actually
-					// an ip address that can be converted to a v4 address
-					if ip != nil && ip.To4() == nil {
-						dr.HasV6 = true
-					}
-				} else {
-					uccString := fmt.Sprintf("%s,%s", recordType, addressType)
-					if _, ok := unCoveredCases[uccString]; ok {
-						continue
-					}
-					errorLogger.Printf(
-						"Case not covered yet, got address type: %s and "+
-							"record type: %s, for domain: %s\n",
-						addressType,
-						recordType,
-						domainName,
-					)
-					unCoveredCases[uccString] = true
+		interfaceAnswers, ok := zdnsResult.Data.(map[string]interface{})["answers"]
+		if !ok {
+			// infoLogger.Printf("This results has no answers, domain: %s\n", domainName)
+			continue
+		}
+		zdnsAnswers := interfaceAnswers.([]interface{})
+		for _, interfaceAnswer := range zdnsAnswers {
+			tmpJSONString, _ := json.Marshal(interfaceAnswer)
+			var answer ZDNSAnswer
+			json.Unmarshal(tmpJSONString, &answer)
+			if answer.Type == "A" {
+				ip := net.ParseIP(answer.Answer)
+				if ip != nil && ip.To4() != nil {
+					drm[domainName].HasV4 = true
+					break
+				}
+			} else if answer.Type == "AAAA" {
+				ip := net.ParseIP(answer.Answer)
+				if ip != nil && ip.To4() == nil {
+					drm[domainName].HasV6 = true
 				}
 			}
 		}
-		drm[domainName] = dr
 	}
 }
 
-func mergeTLSResults(drm map[string]*DomainResults, path string) {
+// addTLSResults will take the results of ZGrab2 tls banner grab and store
+// collection of IPs and whether they have a valid TLS cert in trm
+func addTLSResults(trm TLSResultsMap, path string) {
 	file, err := os.Open(path)
 	if err != nil {
-		errorLogger.Fatalf("os.Open err: %v\n", err)
+		errorLogger.Printf("os.Open err: %v\n", err)
+		errorLogger.Fatalln("Please provide a valid file using the --v{4,6}_tls flag")
 	}
 	defer file.Close()
-	nonSuccessCase := map[string]bool{}
 
 	scanner := bufio.NewScanner(file)
 
 	for scanner.Scan() {
-		var tmpMap map[string]interface{}
+		var zgrabResult zgrab2.Grab
 		l := scanner.Text()
-		json.Unmarshal([]byte(l), &tmpMap)
-		domainName, ok := tmpMap["domain"].(string)
+		json.Unmarshal([]byte(l), &zgrabResult)
+		domainName := zgrabResult.Domain
+		if _, ok := trm[domainName]; !ok {
+			// this domain is not already in the mapping, add it now.
+			tmpTLSResults := new(TLSResults)
+			tmpTLSResults.Domain = domainName
+
+			tmpTLSResults.Addresses = IPSupportsTLS{zgrabResult.IP: false}
+			trm[domainName] = tmpTLSResults
+		} else {
+			trm[domainName].Addresses[zgrabResult.IP] = false
+		}
+
+		tlsScanResults, ok := zgrabResult.Data["tls"]
 		if !ok {
-			errorLogger.Printf("Couldn't extract domain name: %v\n", tmpMap)
+			// infoLogger.Printf("This results has no tls section, domain: %s\n", domainName)
 			continue
 		}
-		if _, ok := drm[domainName]; !ok {
-			errorLogger.Printf(
-				"domainName: %s, not already in drm, skipping for now, should "+
-					"fix though\n",
-				domainName,
-			)
+		if tlsScanResults.Status != "success" {
+			// infoLogger.Printf("This results is a non-successful tls result: %s, %s\n", domainName, tlsScanResults.Status)
 			continue
 		}
 
-		data := tmpMap["data"].(map[string]interface{})
-		tlsData := data["tls"].(map[string]interface{})
-		if tlsData["status"] != "success" {
-			if _, ok := nonSuccessCase[tlsData["status"].(string)]; !ok {
-
-				errorLogger.Printf(
-					"tls status: %s for %s\n", tlsData["status"].(string), domainName,
-				)
-			}
-			nonSuccessCase[tlsData["status"].(string)] = true
+		timestampString := tlsScanResults.Timestamp
+		timestamp, err := time.Parse(time.RFC3339, timestampString)
+		if err != nil {
+			errorLogger.Printf("Error parsing timestamp: %s\n", timestampString)
 			continue
 		}
-		toCert := tlsData["result"].(map[string]interface{})
-		toCert = toCert["handshake_log"].(map[string]interface{})
-		toCert = toCert["server_certificates"].(map[string]interface{})
-		cert := toCert["certificate"].(map[string]interface{})
-		certRaw := cert["raw"].(string)
-		decoded, err := base64.StdEncoding.DecodeString(certRaw)
+		serverHandshakeInterface := tlsScanResults.Result.(map[string]interface{})["handshake_log"].(map[string]interface{})
+		serverCertificatesInterface := serverHandshakeInterface["server_certificates"].(map[string]interface{})
+		leafCertificateInterface := serverCertificatesInterface["certificate"].(map[string]interface{})
+		rawLeafCertificate := leafCertificateInterface["raw"].(string)
+
+		decoded, err := base64.StdEncoding.DecodeString(string(rawLeafCertificate))
 		if err != nil {
 			errorLogger.Printf("base64.Decode of cert err: %v\n", err)
 			continue
@@ -313,20 +271,21 @@ func mergeTLSResults(drm map[string]*DomainResults, path string) {
 		x509Cert, err := x509.ParseCertificate(decoded)
 		if err != nil {
 			errorLogger.Printf("x509.ParseCertificate of cert err: %v\n", err)
+			errorLogger.Printf("decoded certificate: %v\n", decoded)
 			continue
 		}
 		err = x509Cert.VerifyHostname(domainName)
 		if err != nil {
-			errorLogger.Printf("cert doesn't match domain for %s\n", domainName)
+			continue
 		}
+
 		certPool := x509.NewCertPool()
 		var chain []interface{}
-		if toCert["chain"] != nil {
-			chain = toCert["chain"].([]interface{})
+		if serverCertificatesInterface["chain"] != nil {
+			chain = serverCertificatesInterface["chain"].([]interface{})
 		}
 
 		for ind, mInterface := range chain {
-			// infoLogger.Printf("chain index: %d\n", ind)
 			raw := mInterface.(map[string]interface{})["raw"]
 			chainDecoded, err := base64.StdEncoding.DecodeString(raw.(string))
 			if err != nil {
@@ -341,71 +300,99 @@ func mergeTLSResults(drm map[string]*DomainResults, path string) {
 			}
 			certPool.AddCert(chainCert)
 		}
-		_, err = x509Cert.Verify(x509.VerifyOptions{Intermediates: certPool})
-		if err != nil {
-			errorLogger.Printf("cert isn't valid for %s, %v\n", domainName, err)
+
+		verifyOptions := x509.VerifyOptions{
+			DNSName:       domainName,
+			CurrentTime:   timestamp,
+			Intermediates: certPool,
+		}
+		_, err = x509Cert.Verify(verifyOptions)
+		if err == nil {
+			trm[domainName].Addresses[zgrabResult.IP] = true
+		}
+	}
+}
+
+// parseTLSResults will go throw the TLSResultsMap to determine whether a domain
+// supports TLS	on either v4 or v6. A domain supports TLS if all of the IPs do
+// This will print out anomalies like only some IPs supporting TLS
+func parseTLSResults(trm TLSResultsMap, drm DomainResultsMap) {
+	for domain, tlsResults := range trm {
+		var domainSupportsTLS *bool
+		var addressType string
+		for ipString, ipSupportsTLS := range tlsResults.Addresses {
+			ip := net.ParseIP(ipString)
+			if ip.To4() == nil {
+				addressType = "AAAA"
+			} else {
+				addressType = "A"
+			}
+			if domainSupportsTLS == nil {
+				// this is the first iteration through
+				domainSupportsTLS = &ipSupportsTLS
+			} else if ipSupportsTLS != *domainSupportsTLS {
+				infoLogger.Printf(
+					"Unusual Situation: not all IPs for domain %s have the"+
+						" same value on supporting TLS: %#v\n",
+					domain,
+					tlsResults.Addresses,
+				)
+				*domainSupportsTLS = false
+				break
+			}
+		}
+		if _, ok := drm[domain]; !ok {
+			// only for debugging when DNS results don't happen first
 			continue
 		}
-		drm[domainName].HasTLS = true
+
+		if addressType == "A" {
+			drm[domain].HasV4TLS = *domainSupportsTLS
+		} else if addressType == "AAAA" {
+			drm[domain].HasV6TLS = *domainSupportsTLS
+		}
 	}
 }
 
-func technicalRequirements(drm DomainResultsMap, v4Path, v6Path, tlsPath string) {
-	infoLogger.Printf("Checking domains for v4 addresses\n")
-	// read in results of v4 check
-	mergeAddressResults(drm, v4Path, "v4")
-	infoLogger.Printf("Sample Result: %#v\n", drm["google.com"])
-	infoLogger.Printf("Checking domains for v6 addresses\n")
-	// read in results of v6 check
-	mergeAddressResults(drm, v6Path, "v6")
-	infoLogger.Printf("Sample Result: %#v\n", drm["google.com"])
-	// read in results of tls check
-	infoLogger.Printf("Checking domains for valid TLS certs\n")
-	mergeTLSResults(drm, tlsPath)
-	infoLogger.Printf("Sample Result: %#v\n", drm["google.com"])
-}
+// Updates existing tech details with a given file's contents
+func addCountryBlockage(drm DomainResultsMap, path, countryCode string) {
+	blockedDomains := getBlocked(path)
+	for dom, dr := range drm {
+		if _, ok := blockedDomains[dom]; !ok {
+			// this domain isn't on this country's blocked list, so nothing to add
+			continue
+		}
 
-func checkBlockedLists(drm DomainResultsMap, citizenlabGlobal, citizenlabCountry string) {
-	if len(citizenlabGlobal) == 0 {
-		errorLogger.Printf("Citizen lab global list is empty, skipping.")
-	} else {
-		citizenlabMap := getBlocked(citizenlabGlobal)
-		updateDRM(drm, citizenlabMap, "citizenlab global")
-		infoLogger.Printf("Sample Result: %#v\n", drm["google.com"])
-	}
-	if len(citizenlabCountry) == 0 {
-		errorLogger.Printf("Citizen lab country list is empty, skipping.")
-	} else {
-		citizenlabMap := getBlocked(citizenlabCountry)
-		updateDRM(drm, citizenlabMap, "citizenlab country")
-		infoLogger.Printf("Sample Result: %#v\n", drm["google.com"])
+		if countryCode == "GLOBAL" {
+			dr.CitizenLabGlobalList = true
+		} else {
+			dr.CitizenLabCountryList = append(dr.CitizenLabCountryList, countryCode)
+		}
 	}
 }
 
-func getTechRequirements(drm DomainResultsMap, path string) {
-	file, err := os.Open(path)
+// fillInCitizenLabData will read each of the lists from Citizen Lab and fill
+// in for each domain
+func fillInCitizenLabData(drm DomainResultsMap, path string) {
+	files, err := os.ReadDir(path)
 	if err != nil {
-		errorLogger.Fatalf("Can't open file, %s, %v\n", path, err)
-	}
-	defer file.Close()
-
-	bs, err := ioutil.ReadAll(file)
-	if err != nil {
-		errorLogger.Fatalf("ioutil.Readall err on %s: %v\n", path, err)
-	}
-	var drSlice []*DomainResults
-	err = json.Unmarshal(bs, &drSlice)
-	if err != nil {
-		errorLogger.Printf("json.Unmarshal error: %v\n", err)
+		errorLogger.Fatalf("Error checking Citizen Lab List directory: %v\n", err)
 	}
 
-	for _, dr := range drSlice {
-		drm[dr.Domain] = dr
+	matcher, err := regexp.Compile("^[a-z]{2}.csv")
+	if err != nil {
+		errorLogger.Fatalf("Error with regex pattern: %v\n", err)
+	}
+	for _, file := range files {
+		fileName := file.Name()
+		if fileName == "global.csv" || matcher.Match([]byte(fileName)) {
+			countryCode := strings.ToUpper(strings.Split(fileName, ".")[0])
+			addCountryBlockage(drm, filepath.Join(path, fileName), countryCode)
+		}
 	}
 }
 
 func main() {
-	dataPrefix := "data"
 	infoLogger = log.New(
 		os.Stderr,
 		"INFO: ",
@@ -417,103 +404,38 @@ func main() {
 		log.Ldate|log.Ltime|log.Lshortfile,
 	)
 
-	countryCode := flag.String("c", "", "Country code, used to save file")
-	// // Currently using Tranco lists which take a significant amount of time to
-	// // fully load, so we will load 100 at a time, and only more if needed
-	v4Path := flag.String(
-		"v4",
-		"",
-		"Path to file containing zdns results for v4",
-	)
-	v6Path := flag.String(
-		"v6",
-		"",
-		"Path to file containing zdns results for v6",
-	)
-	tlsPath := flag.String(
-		"tls",
-		"",
-		"Path to file containing zgrab2 results for tls",
-	)
-	techPath := flag.String(
-		"tech",
-		"",
-		"Path to file containing technical requirements results",
-	)
-	// cap := flag.Int(
-	// 	"cap",
-	// 	-1,
-	// 	"Maximum number of domains to read from popular file",
-	// )
-	clgPath := flag.String(
-		"cit-lab-global",
-		"",
-		"Path to file containing special domains of interest globally",
-	)
-	clcPath := flag.String(
-		"cit-lab-country",
-		"",
-		"Path to file containing special domains of interest to a specific country",
-	)
-	// numWorkers := flag.Int(
-	// 	"w",
-	// 	5,
-	// 	"Number of separate goroutines to do look-ups",
-	// )
-	// blockedNum := flag.Int(
-	// 	"n",
-	// 	-1,
-	// 	"Number of blocked domains to print, (negative number means grab all)",
-	// )
-	// unblockedNum := flag.Int(
-	// 	"u",
-	// 	-1,
-	// 	"Number of unblocked domains to print, (negative number means grab all)",
-	// )
-	flag.Parse()
+	args := setupArgs(os.Args[1:])
 
 	domainResultsMap := make(DomainResultsMap)
-	if len(*v4Path) == 0 || len(*v6Path) == 0 || len(*tlsPath) == 0 {
-		infoLogger.Printf("One of the technical details paths was empty.\n")
-		infoLogger.Printf("Trying the tech path\n")
-		if len(*techPath) == 0 {
-			errorLogger.Fatalln(
-				"Additionlly the technical requirements path is empty. " +
-					"One must be filled in to run\n",
-			)
-		}
+	infoLogger.Printf("Reading in v4 DNS query results from %s\n", args.V4DNS)
+	addDNSResults(domainResultsMap, args.V4DNS)
+	infoLogger.Printf("Google's results so far: %+v\n", domainResultsMap["google.com"])
+	infoLogger.Printf("Netflix's results so far: %+v\n", domainResultsMap["netflix.com"])
 
-		getTechRequirements(domainResultsMap, *techPath)
-	} else {
-		technicalRequirements(domainResultsMap, *v4Path, *v6Path, *tlsPath)
-		writeToFile(
-			domainResultsMap,
-			fmt.Sprintf("%s/top-1m-tech-details.json", dataPrefix),
-		)
-	}
+	infoLogger.Printf("Reading in v6 DNS query results from %s\n", args.V6DNS)
+	addDNSResults(domainResultsMap, args.V6DNS)
+	infoLogger.Printf("Google's results so far: %+v\n", domainResultsMap["google.com"])
+	infoLogger.Printf("Netflix's results so far: %+v\n", domainResultsMap["netflix.com"])
 
-	checkBlockedLists(domainResultsMap, *clgPath, *clcPath)
-	if len(*clgPath) == 0 && len(*clcPath) == 0 {
-		infoLogger.Printf(
-			"No Citizen Lab Paths provided, not creating a ripe-ready file\n",
-		)
-	} else {
-		if len(*countryCode) != 0 {
-			writeToFile(
-				domainResultsMap,
-				fmt.Sprintf(
-					"%s/%s-top-1m-ripe-ready.json",
-					dataPrefix,
-					*countryCode,
-				),
-			)
+	tlsResultsMap := make(TLSResultsMap)
+	infoLogger.Printf("Reading in v4 TLS banner grab results from %s\n", args.V4TLS)
+	addTLSResults(tlsResultsMap, args.V4TLS)
+	parseTLSResults(tlsResultsMap, domainResultsMap)
+	infoLogger.Printf("Google's results so far: %+v\n", domainResultsMap["google.com"])
+	infoLogger.Printf("Netflix's results so far: %+v\n", domainResultsMap["netflix.com"])
 
-		} else {
-			errorLogger.Printf("No country code provided, saving to a generic file")
-			writeToFile(
-				domainResultsMap,
-				fmt.Sprintf("%s/top-1m-ripe-ready.json", dataPrefix),
-			)
-		}
-	}
+	tlsResultsMap = make(TLSResultsMap)
+	infoLogger.Printf("Reading in v6 TLS banner grab results from %s\n", args.V6TLS)
+	addTLSResults(tlsResultsMap, args.V6TLS)
+	parseTLSResults(tlsResultsMap, domainResultsMap)
+	infoLogger.Printf("Google's results so far: %+v\n", domainResultsMap["google.com"])
+	infoLogger.Printf("Netflix's results so far: %+v\n", domainResultsMap["netflix.com"])
+
+	infoLogger.Printf("Filling in Citizen Lab data from %s\n", args.CitizenLabDirectory)
+	fillInCitizenLabData(domainResultsMap, args.CitizenLabDirectory)
+	infoLogger.Printf("Google's final results: %+v\n", domainResultsMap["google.com"])
+	infoLogger.Printf("Netflix's final results: %+v\n", domainResultsMap["netflix.com"])
+
+	infoLogger.Printf("Writing all results to: %s\n", args.Outfile)
+	writeToFile(domainResultsMap, args.Outfile)
 }

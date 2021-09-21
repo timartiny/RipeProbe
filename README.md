@@ -58,23 +58,28 @@ will probably need `sudo` access to send TCP packets.
 
 ### Run querylist
 
-GOING TO BE UPDATED SOON, THIS STEP IS BEING BROKEN INTO MULTIPLE STEPS
+With v{4,6} DNS and TLS data we can now organize all the domains into a struct
+that keeps track of:
 
-The first step is to collect info on popular domains in the world, filtered
-through the Citizen Lab data. This will require `/data/v4-top-1m.json`,
-`/data/v6-top-1m.json` and `/data/tls-top-1m.json`, at the very least the TLS
-one should be up to day otherwise the script will say no website has TLS due to
-out of date certificates.
+* The domain
+* The domain's rank
+* Whether the domain has a v4 address
+* Whether the domain has a v6 address
+* Whether the domain supports TLS on all of its v4 addresses
+* Whether the domain supports TLS on all of its v6 addresses
 
-```bash
-./querylist  --v4 data/v4-top-1m.json --v6 data/v6-top-1m.json --tls data/tls-top-1m.json --cit-lab-global data/global.csv --cit-lab-country data/<country_code>.csv -c <country_code>
-```
+Querylist will group this information together. It will call out unusual
+circumstances that might pop up (like if a domain supports TLS on some v{4,6}
+addresses but not all).
 
-This will generate both `data/top-1m-tech-details.json` (which can be use for
-future runs with other countries which can be used with the `--tech` flag instead
-of the `--v4, --v6, --tls` flags) and
-`data/<country_code>-top-1m-ripe-ready.json` which will provide information on
-which domains are of interest globally as well as to the provided country.
+To do so run `./querylist` a sample usage is:
+
+`./querylist --v4_dns data/v4-top-1m-sept-15.json --v6_dns data/v6-top-1m-sept-15.json --v4_tls data/v4-tls-top-1m-sept-15.json --v6_tls data/v6-tls-top-1m-sept-15.json --citizen_lab_directory ../test-lists/lists/ --out_file data/full-details-sept-15.json`
+
+This resulting file `data/full-details-sept-15.json` is not sorted by anything.
+To sort by Tranco Rank, run:
+
+`cat data/full-details-sept-15.json | jq -s "sort_by(.tranco_rank) | .[]" -c > data/full-details-sept-15-sorted.json`
 
 ### Citizen Lab Data
 
