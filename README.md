@@ -35,6 +35,9 @@ cat data/top-1m.csv | ./zdns A --alexa --name-servers=8.8.8.8,8.8.4.4,1.1.1.1,1.
 cat data/top-1m.csv | ./zdns AAAA --alexa --name-servers=8.8.8.8,8.8.4.4,1.1.1.1,1.0.0.1 --output-file data/v6-top-1m-<date>.json
 ```
 
+If the list you want to run scans on is not an Alexa formatted CSV file then
+drop the `--alexa` flag and `zdns` will accept a list of domains.
+
 Those are recursive resolvers, but the results will include CNAME records. We
 also need to try each provided IP for a TLS cert for the provided domain. To get
 the associated IP with each domain (excluding the CNAME intermediate steps, but
@@ -81,27 +84,25 @@ To sort by Tranco Rank, run:
 
 `cat data/full-details-sept-15.json | jq -s "sort_by(.tranco_rank) | .[]" -c > data/full-details-sept-15-sorted.json`
 
-### Citizen Lab Data
+### Selecting Domains.
 
-Now to add Citizen Lab data to our struct. That is done by
+From this list you will need to manually select certain domains of interest. You
+will only want domains that support v4, v6, and TLS. Of those domains you will
+want to look for domains you expect to be censored in the country, these will
+become query domains, and domains that are not censored in the country, some of
+these will be control query domains, others might become resolvers. 
 
-`./citizen_lab_data_fillin.py data/tech-details.json <path-to-citizen-lab-lists-directory> data/full-details.json`
+A starting point would be running:
 
-For each domain from the top 1 million this will indicate whether the domain is
-on the Citizen Lab Global list (`on_citizen_lab_global_list`) and which
-country's lists the domain is on (`citizen_lab_countries`) it will also fill in
-what category Citizen Lab has listed it under (`citizen_lab_category`).
+```
+cat data/full-details-sept-15-sorted.json | jq "select(.has_v4==true and .has_v6==true)" -c > data/full-details-v4-and-v6-sept-15.json
+```
 
-You can then sort the results with
+To select domains that have both a `v4` and `v6` address. To reduce that to domains that have TLS on `v4` and `v6` you run:
 
-`jq -s data/full-details.json | jq "sort_by(.tranco_rank)" | jq -c ".[]" > data/full-details-sorted.json`
-
-From this list (which can be sorted by rank) you will need to manually select
-certain domains of interest. You will only want domains that support v4, v6, and
-TLS. Of those domains you will want to look for domains you expect to be
-censored in the country, these will become query domains, and domains that are
-not censored in the country, some of these will be control query domains, others
-might become resolvers. 
+```
+cat full-details-v4-and-v6-sept-15.json | jq "select(.has_v4_tls==true and .has_v6_tls==true)" -c > full-details-v4-and-v6-and-tls-sept-15.json
+```
 
 Of the domains not censored by the given country, you will want to determine
 which are hosted in the given country to do so you will need to create a file in
