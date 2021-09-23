@@ -5,7 +5,7 @@ desired domains from specific probes and countries.
 See [cmd](cmd/) directory for executables and [ripeexperiment](ripeexperiment)
 for libraries.
 
-## Workflow
+# Workflow
 
 The goal of this repo is to run *The Whiteboard Experiment* which will choose
 probes in non-censored countries from RIPE Atlas and use resolvers in censored
@@ -19,12 +19,12 @@ All of the tools for this workflow can be made with
 make
 ```
 
-## Setup
+# Setup
 
 The following steps need to be run one time to set up and organize all the data
 necessary for future steps that will run for each country.
 
-### Get Datafiles
+## Get Datafiles
 
 We assume that the `top-1m.csv` file exits in the `data/` directory from Tranco.
 We'll need to run `zdns` on this file. We use 4 different recursive name servers
@@ -59,7 +59,7 @@ The first command took around 18 minutes on `zbuff`.
 Those two commands will take the longest, collecting ~23 GB of data. Zgrab2
 will probably need `sudo` access to send TCP packets.
 
-### Run querylist
+## Run querylist
 
 With v{4,6} DNS and TLS data we can now organize all the domains into a struct
 that keeps track of:
@@ -84,85 +84,7 @@ To sort by Tranco Rank, run:
 
 `cat data/full-details-sept-15.json | jq -s "sort_by(.tranco_rank) | .[]" -c > data/full-details-sept-15-sorted.json`
 
-### Selecting Domains.
-
-From this list you will need to manually select certain domains of interest. You
-will only want domains that support v4, v6, and TLS. Of those domains you will
-want to look for domains you expect to be censored in the country, these will
-become query domains, and domains that are not censored in the country, some of
-these will be control query domains, others might become resolvers. 
-
-A starting point would be running:
-
-```
-cat data/full-details-sept-15-sorted.json | jq "select(.has_v4==true and .has_v6==true)" -c > data/full-details-v4-and-v6-sept-15.json
-```
-
-To select domains that have both a `v4` and `v6` address. To reduce that to domains that have TLS on `v4` and `v6` you run:
-
-```
-cat full-details-v4-and-v6-sept-15.json | jq "select(.has_v4_tls==true and .has_v6_tls==true)" -c > full-details-v4-and-v6-and-tls-sept-15.json
-```
-
-Of the domains not censored by the given country, you will want to determine
-which are hosted in the given country to do so you will need to create a file in
-the data directory: `data/<country_code>_lookup.json` (such as
-`data/CN_lookup.json`) with the following format:
-
-```json
-[{"domain":<domain_name>},{"domain":<domain_name_2>}]
-```
-
-For later (Whiteboard Experiment) you'll also want to create a list of domains
-that will be used in that experiment, one domain per line, probably some should
-be uncensored (as placebos) and others should be censored, as test.
-
-Then on to the next step:
-
-### Run inCountryLookup
-
-In order to determine which (uncensored) domains are hosted in the country we
-will use RIPE Atlas measurements to perform DNS lookups for us. While we should
-only have domains that support v4 and v6 we will perform both A and AAAA lookups
-to ensure that both IPs are in the country. Run:
-
-```bash
-./inCountryLookup --apiKey <key> -c <country_code> 
-```
-
-This will gather all probes in the specified country that support v4 and v6
-measurements and will randomly select 5 of them to do A and AAAA lookups with
-those probes for the provided domains (saved in
-`data/<country_code>_lookup.json`).
-
-This will schedule a series of measurements with RIPE Atlas, and tell you the
-time they will start. It will save the IDs of the measurements in the `data`
-directory in a file `data/inCountryLookup-Ids-<timestamp>`. 
-
-### Fetch results
-
-After the RIPE Atlas measurements have completed you can fetch the results with
-a simple bash script here:
-
-```bash
-./fetchMeasurementResults.sh -a <api_key> -f data/Ids-<timestamp>
-```
-
-This will create a sub-directory in the `data` directory based on measurement
-IDs i.e., if the first measurment in the list is 30250495 and the last is
-30250522 then it will create the directory `data/30250495-30250522/` to store
-all the measurement results.
-
-### Parse In Country Lookup Results
-
-Next the results need to be merged back into the lookup file. Use the
-`./parseInCountryLookup` script to do this.
-
-```bash
-./parseInCountryLookup --in data/<country_code>_lookup.json --out data/<country_code>-<date>_lookup.json --ids data/Ids-<timestamp>
-```
-
-### Resolver List
+## Find Open Resolvers
 
 There are two types of resolvers in this experiment, open resolvers (i.e. actual resolvers online) and domains hosted in a country that are NOT actually resolvers. 
 
@@ -171,13 +93,21 @@ The domains (used as resolvers) will help us detect bi-directional censorship.
 To generate the list of open resolvers:
 
 1. Get a list of all IPv4 addresses that listen on port 53 (from Censys)
-2. Host a domain that only has an AAAA record with a Name Server that you control (and only has a IPv6 address open to the public)
+2. Host a domain that only has an AAAA record with a Name Server that you
+   control (and only has a IPv6 address open to the public)
 3. On the box that runs the Name Server, run tcpdump recording all requests.
-4. Run the ./probe script (not in repo) which will take all of the IPv4 resolvers (from Step 1) and make a AAAA record request for <v4-ip>.<domain>
-5. Take the PCAP from the box running the Name Server and extract which IPv6 addresses requested an AAAA record for which IPv4 address (from encoded request in Step 4.)
-6. Make a list of single resolvers (there will be a lot of IPv4 addresses that use the same IPv6 resolver, so choose one).
-7. Get country listing for the single resolver pairs, should look like <v6 address> <v4 address> <ISO country code>.
-8. For each address (both v6 and v4) do an A record lookup for a domain that only has a single IPv4 address and an AAAA record lookup for a domain that only have a single IPv6 address.
+4. Run the ./probe script (not in repo) which will take all of the IPv4
+   resolvers (from Step 1) and make a AAAA record request for `<v4-ip>.<domain>`
+5. Take the PCAP from the box running the Name Server and extract which IPv6
+   addresses requested an AAAA record for which IPv4 address (from encoded
+   request in Step 4.)
+6. Make a list of single resolvers (there will be a lot of IPv4 addresses that
+   use the same IPv6 resolver, so choose one).
+7. Get country listing for the single resolver pairs, should look like `<v6
+   address> <v4 address> <ISO country code>`.
+8. For each address (both v6 and v4) do an A record lookup for a domain that
+   only has a single IPv4 address and an AAAA record lookup for a domain that
+   only have a single IPv6 address.
 9. Remove from the list all lines that contain an IP that either:
 	* didn't respond
 	* gave the wrong IPv4 address
@@ -189,30 +119,7 @@ The lastest collection of IPs was generated on August 30, 2021, and is saved in
 `data/aug-30-2-single-resolvers-country-correct-sorted` (All correct resolver
 pairs, Step 10.)
 
-After the list of correct open resolvers is made you can run:
-```
-./resolverlist -c <country_code> --lookup <path_to_lookup_file> --out <path_to_save_resolvers> --resolvers <path_from_above>
-```
-
-Sample usage:
-```
-/resolverlist -c CN --lookup data/CN_lookup-sept-8-full.json --out data/CN_resolver_ips.dat --resolvers data/aug-30-2-single-resolvers-country-correct-sorted
-```
-
-You can filter this list to the lines that fall into unique ASNs and sort the
-data by type of resolver with: 
-
-```
-./unique_asn.py data/GeoLite2-ASN.mmdb data/CN_resolver_ips.dat | sort -k 2 >
-data/CN_resolver_ips_unique_asn_sorted.dat
-```
-
-You can sort the resolver ips by domain/openresolver using `sort -k 2
-data/CN_resolver_ips.dat > data/tmp`
-
-See [resolverlist directory](cmd/resolverlist) for more specific readme.
-
-### Probe Generator
+## Probe Generator
 
 This script will find all RIPE Atlas probes that are not in our list of censored
 countries:
@@ -240,7 +147,115 @@ This will create `data/uncensored_probes.dat` with format
 
 `<probe id> <v4 ASN> <v6 ASN>`
 
-### Whiteboard Experiment
+# Country Experiments
+Now all the set up is complete. Each of the following steps needs to be run
+individually for each country being tested.
+
+## Selecting Domains
+
+From this list you will need to manually select certain domains of interest. You
+will only want domains that support v4, v6, and TLS. Of those domains you will
+want to look for domains you expect to be censored in the country, these will
+become query domains, and domains that are not censored in the country, some of
+these will be control query domains, others might become resolvers. 
+
+A starting point would be running:
+
+```
+cat data/full-details-sept-15-sorted.json | jq "select(.has_v4==true and .has_v6==true)" -c > data/full-details-v4-and-v6-sept-15.json
+```
+
+To select domains that have both a `v4` and `v6` address. To reduce that to
+domains that have TLS on `v4` and `v6` you run:
+
+```
+cat full-details-v4-and-v6-sept-15.json | jq "select(.has_v4_tls==true and .has_v6_tls==true)" -c > full-details-v4-and-v6-and-tls-sept-15.json
+```
+
+Of the domains not censored by the given country, you will want to determine
+which are hosted in the given country to do so you will need to create a file in
+the data directory: `data/<country_code>_lookup.json` (such as
+`data/CN_lookup.json`) with the following format:
+
+```json
+[{"domain":<domain_name>},{"domain":<domain_name_2>}]
+```
+
+For later (Whiteboard Experiment) you'll also want to create a list of domains
+that will be used in that experiment, one domain per line, probably some should
+be uncensored (as placebos) and others should be censored, as test.
+
+Then on to the next step:
+
+## Run inCountryLookup
+
+In order to determine which (uncensored) domains are hosted in the country we
+will use RIPE Atlas measurements to perform DNS lookups for us. While we should
+only have domains that support v4 and v6 we will perform both A and AAAA lookups
+to ensure that both IPs are in the country. Run:
+
+```bash
+./inCountryLookup --apiKey <key> -c <country_code> 
+```
+
+This will gather all probes in the specified country that support v4 and v6
+measurements and will randomly select 5 of them to do A and AAAA lookups with
+those probes for the provided domains (saved in
+`data/<country_code>_lookup.json`).
+
+This will schedule a series of measurements with RIPE Atlas, and tell you the
+time they will start. It will save the IDs of the measurements in the `data`
+directory in a file `data/inCountryLookup-Ids-<timestamp>`. 
+
+## Fetch results
+
+After the RIPE Atlas measurements have completed you can fetch the results with
+a simple bash script here:
+
+```bash
+./fetchMeasurementResults.sh -a <api_key> -f data/Ids-<timestamp>
+```
+
+This will create a sub-directory in the `data` directory based on measurement
+IDs i.e., if the first measurment in the list is 30250495 and the last is
+30250522 then it will create the directory `data/30250495-30250522/` to store
+all the measurement results.
+
+## Parse In Country Lookup Results
+
+Next the results need to be merged back into the lookup file. Use the
+`./parseInCountryLookup` script to do this.
+
+```bash
+./parseInCountryLookup --in data/<country_code>_lookup.json --out data/<country_code>-<date>_lookup.json --ids data/Ids-<timestamp>
+```
+
+## Make a list of resolvers
+After the list of correct open resolvers is made you can run:
+```
+./resolverlist -c <country_code> --lookup <path_to_non_censored_domains> --out <path_to_save_resolvers> --resolvers <path_from_above>
+```
+
+Sample usage:
+```
+/resolverlist -c CN --lookup data/CN_lookup-sept-8-full.json --out data/CN_resolver_ips.dat --resolvers data/aug-30-2-single-resolvers-country-correct-sorted
+```
+
+You can filter this list to the lines that fall into unique ASNs and sort the
+data by type of resolver with: 
+
+```
+./unique_asn.py data/GeoLite2-ASN.mmdb data/CN_resolver_ips.dat | sort -k 2 >
+data/CN_resolver_ips_unique_asn_sorted.dat
+```
+
+You can sort the resolver ips by domain/openresolver using `sort -k 2
+data/CN_resolver_ips.dat > data/tmp`
+
+See [resolverlist directory](cmd/resolverlist) for more specific readme.
+
+
+## Whiteboard Experiment
 
 Once all the probes are selected, the resolvers are chosen, and the domains are
 listed we can run the white board experiment. Run:
@@ -256,7 +271,7 @@ others. Measurments may be scheduled then not run.
 All the measurment IDs are saved in
 `data/Whiteboard-Ids-<country_code>-<timestamp>`.
 
-### Fetch results (again)
+## Fetch results (again)
 
 No change here but this time you run:
 
@@ -267,7 +282,7 @@ No change here but this time you run:
 This will create a subdirectory in the `data` directory such as
 `data/30251621-30251733/`
 
-### Parse Whiteboard Experiment
+## Parse Whiteboard Experiment
 
 The raw results from RIPE Atlas are hard to read as retrieved, we only care about a subset of the data. To get the simplified results run
 
@@ -320,12 +335,14 @@ The IP, Domain pairs are exactly what they sound like:
 ...
 ```
 
-### Verify the IP, Domain results
+## Verify the IP, Domain results
 
 Use Zgrab2 to get information on the IP, Domain pairings, run:
 
 `cat ip_dom_pairs | zgrab2 -o tls_ip_dom_pairs.json tls`
 
+
+# This is extraneous stuff at the moment
 ### Whiteboard Results
 
 To get *The Whiteboard Experiment* results into a form we can use we run:
