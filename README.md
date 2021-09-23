@@ -173,13 +173,8 @@ cat full-details-v4-and-v6-sept-15.json | jq "select(.has_v4_tls==true and .has_
 ```
 
 Of the domains not censored by the given country, you will want to determine
-which are hosted in the given country to do so you will need to create a file in
-the data directory: `data/<country_code>_lookup.json` (such as
-`data/CN_lookup.json`) with the following format:
-
-```json
-[{"domain":<domain_name>},{"domain":<domain_name_2>}]
-```
+which are hosted in the given country to do so you will need to create a file
+that has one domain per line to pass to `inCoutnryLookup` (below).
 
 For later (Whiteboard Experiment) you'll also want to create a list of domains
 that will be used in that experiment, one domain per line, probably some should
@@ -195,17 +190,32 @@ only have domains that support v4 and v6 we will perform both A and AAAA lookups
 to ensure that both IPs are in the country. Run:
 
 ```bash
-./inCountryLookup --apiKey <key> -c <country_code> 
+./inCountryLookup --apiKey <key> --country_code <country_code> --domain_file <file with domains, one per line> --ids_file <file to save ids to, one per line>
 ```
 
-This will gather all probes in the specified country that support v4 and v6
-measurements and will randomly select 5 of them to do A and AAAA lookups with
-those probes for the provided domains (saved in
-`data/<country_code>_lookup.json`).
+Complete usage is:
 
-This will schedule a series of measurements with RIPE Atlas, and tell you the
-time they will start. It will save the IDs of the measurements in the `data`
-directory in a file `data/inCountryLookup-Ids-<timestamp>`. 
+```
+Usage:
+  inCountryLookup [OPTIONS]
+
+Application Options:
+      --country_code= (Required) The Country Code to request probes from
+      --domain_file=  (Required) Path to the file containing the domains to perform DNS lookups for, one domain per line
+      --api_key=      (Required) Quote enclosed RIPE Atlas API key
+      --ids_file=     (Required) Path to the file to write the RIPE Atlas measurement IDs to
+      --get_probes    Whether to get new probes or not. If yes and probes_file is specified the probe ids will be written there
+      --probes_file=  If get_probes is specified this is the file to write out the probes used in this experiment if get_probes is not specified then this is the file to read probes from. If ommitted nothing is
+                      written
+      --num_probes=   Number of probes to do lookup with (default: 5)
+
+Help Options:
+  -h, --help          Show this help message
+
+```
+
+the `ids_file` will be a list of integers that correspond to Measurement Ids in
+RIPE Atlas.
 
 ## Fetch results
 

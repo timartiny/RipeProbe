@@ -33,18 +33,8 @@ selected. The experiment Ids will be saved in `ids_file`.
 This code will look for probes in a given country then use those probes to
 resolve domains.
 
-The following is sufficient to run this script if using the default lookup file
-(`data/<country_code>_lookup.json`) and looking up probes: 
+The following is sufficient to run this script
 
-`./inCountryLookup --apiKey <key> -c <country_code>`
+`./inCountryLookup --country_code CN --domain_file data/CN_in_country_domains.dat --api_key "<api key here>" --ids_file data/inCountryLookup-Ids-CN-sept-23.dat`
 
-assumes that the domains to lookup are in a file
-`data/<country_code>_lookup.json` with the form of 
-
-```json
-[{"domain":<domain_name>},{"domain":<domain_name_2>}]
-```
-
-You can also specify the lookup file or a list of probes with
-
-`./inCountryLookup --apiKey <key> -c <country_code> --lookupFile <path_to_lookup_file> --probeFile <path_to_probe_file`
+the `domain_file` is just a list of domains, one per line.
