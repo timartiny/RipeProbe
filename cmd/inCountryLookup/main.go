@@ -1,160 +1,214 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
-	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	atlas "github.com/keltia/ripe-atlas"
-	experiment "github.com/timartiny/RipeProbe/RipeExperiment"
+	flags "github.com/zmap/zflags"
 )
-
-var dataFilePrefix string
 
 var (
 	infoLogger  *log.Logger
 	errorLogger *log.Logger
 )
 
-func fillIn(probe atlas.Probe) experiment.ProbeIPs {
-	var miniData experiment.ProbeIPs
-	miniData.ID = probe.ID
-	miniData.AddressV4 = probe.AddressV4
-	miniData.PrefixV4 = probe.PrefixV4
-	miniData.AddressV6 = probe.AddressV6
-	miniData.PrefixV6 = probe.PrefixV6
-
-	return miniData
+// ProbeIP struct will store information to let probes be usable easily
+type ProbeIP struct {
+	ID        int    `json:"id"`
+	AddressV4 string `json:"address_v4"`
+	PrefixV4  string `json:"prefix_v4"`
+	AddressV6 string `json:"address_v6"`
+	PrefixV6  string `json:"prefix_v6"`
 }
 
-func writeProbes(probes []atlas.Probe, countryCode string) {
-	probesBytes, err := json.MarshalIndent(probes, "", "\t")
-	if err != nil {
-		errorLogger.Fatalf("Error unmarshalling probes, err: %v\n", err)
-	}
-	f, err := os.Create(
-		fmt.Sprintf("%s/%s_full_probe_data.json", dataFilePrefix, countryCode),
-	)
-	if err != nil {
-		errorLogger.Fatalf("Couldn't open file: %v\n", err)
-	}
-	defer f.Close()
+type InCountryLookupFlags struct {
+	CountryCode string `long:"country_code" description:"(Required) The Country Code to request probes from" required:"true" json:"country_code"`
+	DomainFile  string `long:"domain_file" description:"(Required) Path to the file containing the domains to perform DNS lookups for, one domain per line" required:"true" json:"domain_file"`
+	APIKey      string `long:"api_key" description:"(Required) Quote enclosed RIPE Atlas API key" required:"true" json:"api_key"`
+	IDsFile     string `long:"ids_file" description:"(Required) Path to the file to write the RIPE Atlas measurement IDs to" required:"true" json:"ids_file"`
+	GetProbes   bool   `long:"get_probes" description:"Whether to get new probes or not. If yes and probes_file is specified the probe ids will be written there" json:"get_probes"`
+	ProbesFile  string `long:"probes_file" description:"If get_probes is specified this is the file to write out the probes used in this experiment if get_probes is not specified then this is the file to read probes from. If ommitted nothing is written" json:"probe_file"`
+	NumProbes   int    `long:"num_probes" description:"Number of probes to do lookup with" default:"5" json:"num_probes"`
+}
 
-	_, err = f.Write(probesBytes)
-	if err != nil {
-		errorLogger.Fatalf("Couldn't write to file: %v\n", err)
-	}
-	f.WriteString("\n")
-	infoLogger.Printf("Wrote full response to %s\n", f.Name())
+func setupArgs(args []string) InCountryLookupFlags {
+	var ret InCountryLookupFlags
+	posArgs, _, _, err := flags.ParseArgs(&ret, args)
 
-	probeF, err := os.Create(
-		fmt.Sprintf("%s/%s_probes.json", dataFilePrefix, countryCode),
-	)
 	if err != nil {
-		errorLogger.Fatalf("Couldn't open file: %v\n", err)
+		errorLogger.Printf("Error parsing args: %v\n", err)
+		os.Exit(1)
+	}
+	if len(posArgs) > 0 {
+		infoLogger.Printf("Extra arguments provided, but not used: %v\n", args)
+	}
+
+	return ret
+}
+
+func simplifyProbeData(probes []atlas.Probe) []ProbeIP {
+
+	var miniDatas []ProbeIP
+	for _, probe := range probes {
+		var miniData ProbeIP
+		miniData.ID = probe.ID
+		miniData.AddressV4 = probe.AddressV4
+		miniData.PrefixV4 = probe.PrefixV4
+		miniData.AddressV6 = probe.AddressV6
+		miniData.PrefixV6 = probe.PrefixV6
+
+		miniDatas = append(miniDatas, miniData)
+	}
+
+	return miniDatas
+}
+
+func writeProbes(probes []ProbeIP, writeFile string) {
+	probeF, err := os.Create(writeFile)
+	if err != nil {
+		errorLogger.Fatalf("Couldn't create file: %v\n", err)
 	}
 	defer probeF.Close()
 
-	var miniProbes []experiment.ProbeIPs
 	for _, probe := range probes {
-		miniProbes = append(miniProbes, fillIn(probe))
+		jsonMini, err := json.Marshal(probe)
+		if err != nil {
+			errorLogger.Printf("Error marshalling data: %v\n", err)
+			continue
+		}
+		probeF.Write(jsonMini)
+		probeF.WriteString("\n")
 	}
-	jsonMini, _ := json.MarshalIndent(miniProbes, "", "\t")
-	probeF.Write(jsonMini)
-	probeF.WriteString("\n")
 
 	infoLogger.Printf("Wrote simplified data to %s\n", probeF.Name())
 }
 
-func getProbes(countryCode string) {
-	if countryCode == "" {
-		errorLogger.Fatalf(
-			"To gather probes must enter Countrycode, using flag -c",
-		)
-	}
-
-	probes := experiment.GetProbes(countryCode)
-	writeProbes(probes, countryCode)
-}
-
-func atlasExperiment(domainFile, apiKey, probeFile string) {
-	if len(apiKey) <= 0 {
-		errorLogger.Fatalf(
-			"To do atlas experiments you need to provide an API key " +
-				"with --apiKey",
-		)
-	}
-	f, err := os.Open(domainFile)
-	if err != nil {
-		errorLogger.Fatalf("Error opening CSV file, err: %v\n", err)
-	}
-	defer f.Close()
-
-	var domainList []string
-
-	jBytes, err := ioutil.ReadAll(f)
-	if err != nil {
-		errorLogger.Fatalf("Can't read bytes from %s, %v\n", domainFile, err)
-	}
-	var records []experiment.LookupResult
-	err = json.Unmarshal(jBytes, &records)
-	if err != nil {
-		errorLogger.Fatalf("Can't unmarshal json bytes, %v", err)
-	}
-	for _, record := range records {
-		domainList = append(domainList, record.Domain)
-	}
-
+func getProbesFromFile(probeFile string) []ProbeIP {
 	probeF, err := os.Open(probeFile)
 	if err != nil {
-		errorLogger.Fatalf("Error opening CSV file, err: %v\n", err)
+		errorLogger.Fatalf("Error opening probe file, err: %v\n", err)
 	}
 	defer probeF.Close()
 
-	var fullProbes []experiment.ProbeIPs
-	jsonBytes, err := ioutil.ReadAll(probeF)
-	if err != nil {
-		errorLogger.Fatalf("Error reading JSON file: %v\n", err)
+	var fullProbes []ProbeIP
+	scanner := bufio.NewScanner(probeF)
+	for scanner.Scan() {
+		var probe ProbeIP
+		jsonBytes := scanner.Text()
+		err = json.Unmarshal([]byte(jsonBytes), &probe)
+		if err != nil {
+			errorLogger.Printf("Error unmarshalling probe data: %v\n", err)
+			errorLogger.Fatalf("JSON data: %v\n", jsonBytes)
+		}
+		fullProbes = append(fullProbes, probe)
 	}
 
-	err = json.Unmarshal(jsonBytes, &fullProbes)
-	if err != nil {
-		errorLogger.Fatalf("Error unmarshalling JSON file: %v\n", err)
-	}
-
-	var probeIds []string
-
-	for i := 0; i < 5; i++ {
-		probeIds = append(probeIds, fmt.Sprint(fullProbes[i].ID))
-	}
-
-	infoLogger.Printf("Domains: %v, probes: %v\n", domainList, probeIds)
-
-	startTime := time.Now().Add(time.Duration(time.Second * 30))
-	startTime = startTime.Round(time.Minute * 5).Add(time.Minute * 5)
-	measurementIds, err := experiment.LookupAtlas(domainList, apiKey, probeIds, []string{}, startTime)
-	if err != nil {
-		errorLogger.Fatalf("Error running experiment: %v\n", err)
-	}
-	infoLogger.Printf("Experiment scheduled it will run at %s\n", startTime.String())
-	timeStr := fmt.Sprintf(
-		"%d-%02d-%02d::%02d:%02d",
-		startTime.Year(),
-		startTime.Month(),
-		startTime.Day(),
-		startTime.Hour(),
-		startTime.Minute(),
-	)
-
-	saveIds(measurementIds, timeStr)
+	return fullProbes
 }
 
-func saveIds(ids []int, timeStr string) {
-	idFile, err := os.Create(dataFilePrefix + "/inCountryLookup-Ids-" + timeStr)
+func getProbesFromRIPE(countryCode, writeFile string) []ProbeIP {
+	client, err := atlas.NewClient(atlas.Config{})
+	if err != nil {
+		errorLogger.Fatalf("Error creating atlas client, err: %v\n", err)
+	}
+	opts := make(map[string]string)
+	opts["country_code"] = countryCode
+	opts["status"] = "1"
+	probes, err := client.GetProbes(opts)
+	if err != nil {
+		errorLogger.Fatalf("Error getting probes, err: %v\n", err)
+	}
+	simplifiedProbes := simplifyProbeData(probes)
+
+	if len(writeFile) != 0 {
+		writeProbes(simplifiedProbes, writeFile)
+	}
+	return simplifiedProbes
+}
+
+func makeDNSDefinitions(domains []string) []atlas.Definition {
+	ret := make([]atlas.Definition, 0, len(domains))
+	var selfResolve = true
+	for _, domain := range domains {
+		dns := atlas.Definition{
+			Description:      "Local in-country DNS A lookup for " + domain,
+			Type:             "dns",
+			AF:               4,
+			IsOneoff:         true,
+			QueryClass:       "IN",
+			QueryType:        "A",
+			QueryArgument:    domain,
+			ResolveOnProbe:   true,
+			UseProbeResolver: selfResolve,
+			SetRDBit:         true,
+		}
+		ret = append(ret, dns)
+		dns = atlas.Definition{
+			Description:      "Local in-country DNS AAAA lookup for " + domain,
+			Type:             "dns",
+			AF:               4, // Note this is asking what IP to do the lookup from
+			IsOneoff:         true,
+			QueryClass:       "IN",
+			QueryType:        "AAAA",
+			QueryArgument:    domain,
+			ResolveOnProbe:   true,
+			UseProbeResolver: selfResolve,
+			SetRDBit:         true,
+		}
+		ret = append(ret, dns)
+	}
+
+	return ret
+}
+
+func atlasDNSLookup(domains []string, apiKey string, probeIds []string, startTime time.Time) ([]int, error) {
+	if len(apiKey) <= 0 {
+		errorLogger.Fatalf("need to provide an API key\n")
+	}
+	config := atlas.Config{
+		APIKey: apiKey,
+	}
+	client, err := atlas.NewClient(config)
+	if err != nil {
+		errorLogger.Fatalf("Error creating atlas client, err: %v\n", err)
+	}
+	dnsDefinitions := makeDNSDefinitions(domains)
+
+	probesString := strings.Join(probeIds, ",")
+	dnsRequest := client.NewMeasurement()
+	dnsRequest.Definitions = dnsDefinitions
+	dnsRequest.Probes = []atlas.ProbeSet{
+		{Requested: len(probeIds), Type: "probes", Value: probesString},
+	}
+	dnsRequest.StartTime = int(startTime.Unix())
+
+	resp, err := client.DNS(dnsRequest)
+	if err != nil {
+		// errorLogger.Printf("%+v\n", dnsDefinitions)
+		b, _ := json.Marshal(&dnsDefinitions)
+		f, _ := os.Create("errorfile")
+		f.Write(b)
+		defer f.Close()
+		errorLogger.Printf("Failed to create DNS measurements, err: %v\n", err)
+		return []int{}, err
+	}
+
+	infoLogger.Printf(
+		"Successfully created measurements, measurement IDs: %v\n",
+		resp,
+	)
+
+	return resp.Measurements, nil
+}
+
+func saveIds(ids []int, idsFile string) {
+	idFile, err := os.Create(idsFile)
 	if err != nil {
 		errorLogger.Fatalf(
 			"error creating file to save measurements: %v\n",
@@ -170,35 +224,55 @@ func saveIds(ids []int, timeStr string) {
 	for _, id := range ids {
 		idFile.WriteString(fmt.Sprintf("%d\n", id))
 	}
+}
 
+func inCountryLookup(
+	domainFile,
+	apiKey string,
+	probes []ProbeIP,
+	numProbes int,
+	idsFile string,
+) {
+	domainF, err := os.Open(domainFile)
+	if err != nil {
+		errorLogger.Fatalf("Error opening domain file, err: %v\n", err)
+	}
+	defer domainF.Close()
+
+	var domainList []string
+
+	scanner := bufio.NewScanner(domainF)
+	for scanner.Scan() {
+		domainList = append(domainList, scanner.Text())
+	}
+
+	var probeIds []string
+
+	for i := 0; i < numProbes; i++ {
+		probeIds = append(probeIds, fmt.Sprint(probes[i].ID))
+	}
+
+	infoLogger.Printf("Domains: %v, probes: %v\n", domainList, probeIds)
+
+	startTime := time.Now()
+	// RIPE Atlas works in multiples of 5 minutes, so go to the next multiple of
+	// 5 minutes to give time for sending all requests
+	startTime = startTime.Round(time.Minute * 5).Add(time.Minute * 5)
+	measurementIds, err := atlasDNSLookup(
+		domainList,
+		apiKey,
+		probeIds,
+		startTime,
+	)
+	if err != nil {
+		errorLogger.Fatalf("Error running experiment: %v\n", err)
+	}
+	infoLogger.Printf("Experiment scheduled it will run at %s\n", startTime.String())
+
+	saveIds(measurementIds, idsFile)
 }
 
 func main() {
-	dataFilePrefix = "data"
-	countryCode := flag.String(
-		"c",
-		"",
-		"The Country Code to request probes from",
-	)
-	probeFile := flag.String(
-		"probeFile",
-		"",
-		"JSON file of probes that can be provided instead of doing a live lookup",
-	)
-	lookupFile := flag.String(
-		"lookupFile",
-		"",
-		"JSON file containing domains to lookup with RIPE Atlas, otherwise "+
-			"uses Country Code for default file",
-	)
-	noAtlasFlag := flag.Bool(
-		"noatlas",
-		false,
-		"Will just do a dry run, won't actually call out to RIPE Atlas",
-	)
-	apiKey := flag.String("apiKey", "", "API key as string")
-
-	flag.Parse()
 	infoLogger = log.New(
 		os.Stderr,
 		"INFO: ",
@@ -209,20 +283,22 @@ func main() {
 		"ERROR: ",
 		log.Ldate|log.Ltime|log.Lshortfile,
 	)
-	if len(*lookupFile) == 0 {
-		*lookupFile = fmt.Sprintf(
-			"%s/%s_lookup.json", dataFilePrefix, *countryCode,
+
+	args := setupArgs(os.Args[1:])
+
+	var probes []ProbeIP
+	if args.GetProbes || len(args.ProbesFile) == 0 {
+		infoLogger.Printf("Gathering live probes from %s\n", args.CountryCode)
+		probes = getProbesFromRIPE(args.CountryCode, args.ProbesFile)
+	} else if len(args.ProbesFile) > 0 {
+		probes = getProbesFromFile(args.ProbesFile)
+	} else {
+		errorLogger.Fatal("Must provide either --get_probes or --probes_file " +
+			"to run experiment",
 		)
-	}
-	if len(*probeFile) == 0 {
-		*probeFile = fmt.Sprintf(
-			"%s/%s_probes.json", dataFilePrefix, *countryCode,
-		)
-		infoLogger.Printf("Gathering live probes from %s\n", *countryCode)
-		getProbes(*countryCode)
 	}
 
-	if !*noAtlasFlag {
-		atlasExperiment(*lookupFile, *apiKey, *probeFile)
-	}
+	inCountryLookup(
+		args.DomainFile, args.APIKey, probes, args.NumProbes, args.IDsFile,
+	)
 }
