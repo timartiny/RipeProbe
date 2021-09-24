@@ -20,11 +20,16 @@ Our working list of Censored countries:
 * Argentina
 * Brazil
 
-Usage:
-
-```bash
-./probegenerator
 ```
-It will write `data/uncensored_probes.dat` with format
+Usage: probegenerator [--all_probes_file ALL_PROBES_FILE] --filtered_probes_file FILTERED_PROBES_FILE
 
-`<probe id> <v4 ASN> <v6 ASN>`
+Options:
+  --all_probes_file ALL_PROBES_FILE
+                         Path to save all the probes data to
+  --filtered_probes_file FILTERED_PROBES_FILE
+                         (Required) Path to save the probes from not censored countryes, alive, and from different ASNs to
+  --help, -h             display this help and exit
+```
+
+Uses the [probes](../../probes) module and prints output in JSON format, one per
+line.

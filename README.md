@@ -139,13 +139,19 @@ Has been connected for at least a week, has a v4 and v6 address and does not
 share a v4 or v6 ASN with any other probe. This list might have over 1000 probes
 and might need to be filtered further.
 
-```bash
-./probegenerator
+```
+Usage: probegenerator [--all_probes_file ALL_PROBES_FILE] --filtered_probes_file FILTERED_PROBES_FILE
+
+Options:
+  --all_probes_file ALL_PROBES_FILE
+                         Path to save all the probes data to
+  --filtered_probes_file FILTERED_PROBES_FILE
+                         (Required) Path to save the probes from not censored countryes, alive, and from different ASNs to
+  --help, -h             display this help and exit
 ```
 
-This will create `data/uncensored_probes.dat` with format 
-
-`<probe id> <v4 ASN> <v6 ASN>`
+Uses the [probes](../../probes) module and prints output in JSON format, one per
+line.
 
 # Country Experiments
 Now all the set up is complete. Each of the following steps needs to be run
