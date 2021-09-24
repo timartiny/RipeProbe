@@ -9,23 +9,15 @@ import (
 	"strings"
 	"time"
 
+	arg "github.com/alexflint/go-arg"
 	atlas "github.com/keltia/ripe-atlas"
-	flags "github.com/zmap/zflags"
+	probes "github.com/timartiny/RipeProbe/probes"
 )
 
 var (
 	infoLogger  *log.Logger
 	errorLogger *log.Logger
 )
-
-// ProbeIP struct will store information to let probes be usable easily
-type ProbeIP struct {
-	ID        int    `json:"id"`
-	AddressV4 string `json:"address_v4"`
-	PrefixV4  string `json:"prefix_v4"`
-	AddressV6 string `json:"address_v6"`
-	PrefixV6  string `json:"prefix_v6"`
-}
 
 type InCountryLookupFlags struct {
 	CountryCode string `long:"country_code" description:"(Required) The Country Code to request probes from" required:"true" json:"country_code"`
@@ -37,31 +29,24 @@ type InCountryLookupFlags struct {
 	NumProbes   int    `long:"num_probes" description:"Number of probes to do lookup with" default:"5" json:"num_probes"`
 }
 
-func setupArgs(args []string) InCountryLookupFlags {
+func setupArgs() InCountryLookupFlags {
 	var ret InCountryLookupFlags
-	posArgs, _, _, err := flags.ParseArgs(&ret, args)
-
-	if err != nil {
-		errorLogger.Printf("Error parsing args: %v\n", err)
-		os.Exit(1)
-	}
-	if len(posArgs) > 0 {
-		infoLogger.Printf("Extra arguments provided, but not used: %v\n", args)
-	}
+	arg.MustParse(&ret)
 
 	return ret
 }
 
-func simplifyProbeData(probes []atlas.Probe) []ProbeIP {
+func simplifyProbeData(probeSlice []atlas.Probe) []probes.ProbeIP {
 
-	var miniDatas []ProbeIP
-	for _, probe := range probes {
-		var miniData ProbeIP
+	var miniDatas []probes.ProbeIP
+	for _, probe := range probeSlice {
+		var miniData probes.ProbeIP
 		miniData.ID = probe.ID
 		miniData.AddressV4 = probe.AddressV4
 		miniData.PrefixV4 = probe.PrefixV4
 		miniData.AddressV6 = probe.AddressV6
 		miniData.PrefixV6 = probe.PrefixV6
+		miniData.CountryCode = probe.CountryCode
 
 		miniDatas = append(miniDatas, miniData)
 	}
@@ -69,14 +54,14 @@ func simplifyProbeData(probes []atlas.Probe) []ProbeIP {
 	return miniDatas
 }
 
-func writeProbes(probes []ProbeIP, writeFile string) {
+func writeProbes(probeSlice []probes.ProbeIP, writeFile string) {
 	probeF, err := os.Create(writeFile)
 	if err != nil {
 		errorLogger.Fatalf("Couldn't create file: %v\n", err)
 	}
 	defer probeF.Close()
 
-	for _, probe := range probes {
+	for _, probe := range probeSlice {
 		jsonMini, err := json.Marshal(probe)
 		if err != nil {
 			errorLogger.Printf("Error marshalling data: %v\n", err)
@@ -89,17 +74,17 @@ func writeProbes(probes []ProbeIP, writeFile string) {
 	infoLogger.Printf("Wrote simplified data to %s\n", probeF.Name())
 }
 
-func getProbesFromFile(probeFile string) []ProbeIP {
+func getProbesFromFile(probeFile string) []probes.ProbeIP {
 	probeF, err := os.Open(probeFile)
 	if err != nil {
 		errorLogger.Fatalf("Error opening probe file, err: %v\n", err)
 	}
 	defer probeF.Close()
 
-	var fullProbes []ProbeIP
+	var fullProbes []probes.ProbeIP
 	scanner := bufio.NewScanner(probeF)
 	for scanner.Scan() {
-		var probe ProbeIP
+		var probe probes.ProbeIP
 		jsonBytes := scanner.Text()
 		err = json.Unmarshal([]byte(jsonBytes), &probe)
 		if err != nil {
@@ -112,7 +97,7 @@ func getProbesFromFile(probeFile string) []ProbeIP {
 	return fullProbes
 }
 
-func getProbesFromRIPE(countryCode, writeFile string) []ProbeIP {
+func getProbesFromRIPE(countryCode, writeFile string) []probes.ProbeIP {
 	client, err := atlas.NewClient(atlas.Config{})
 	if err != nil {
 		errorLogger.Fatalf("Error creating atlas client, err: %v\n", err)
@@ -120,11 +105,11 @@ func getProbesFromRIPE(countryCode, writeFile string) []ProbeIP {
 	opts := make(map[string]string)
 	opts["country_code"] = countryCode
 	opts["status"] = "1"
-	probes, err := client.GetProbes(opts)
+	probeSlice, err := client.GetProbes(opts)
 	if err != nil {
 		errorLogger.Fatalf("Error getting probes, err: %v\n", err)
 	}
-	simplifiedProbes := simplifyProbeData(probes)
+	simplifiedProbes := simplifyProbeData(probeSlice)
 
 	if len(writeFile) != 0 {
 		writeProbes(simplifiedProbes, writeFile)
@@ -229,7 +214,7 @@ func saveIds(ids []int, idsFile string) {
 func inCountryLookup(
 	domainFile,
 	apiKey string,
-	probes []ProbeIP,
+	probeSlice []probes.ProbeIP,
 	numProbes int,
 	idsFile string,
 ) {
@@ -249,7 +234,7 @@ func inCountryLookup(
 	var probeIds []string
 
 	for i := 0; i < numProbes; i++ {
-		probeIds = append(probeIds, fmt.Sprint(probes[i].ID))
+		probeIds = append(probeIds, fmt.Sprint(probeSlice[i].ID))
 	}
 
 	infoLogger.Printf("Domains: %v, probes: %v\n", domainList, probeIds)
@@ -284,14 +269,14 @@ func main() {
 		log.Ldate|log.Ltime|log.Lshortfile,
 	)
 
-	args := setupArgs(os.Args[1:])
+	args := setupArgs()
 
-	var probes []ProbeIP
+	var probeSlice []probes.ProbeIP
 	if args.GetProbes || len(args.ProbesFile) == 0 {
 		infoLogger.Printf("Gathering live probes from %s\n", args.CountryCode)
-		probes = getProbesFromRIPE(args.CountryCode, args.ProbesFile)
+		probeSlice = getProbesFromRIPE(args.CountryCode, args.ProbesFile)
 	} else if len(args.ProbesFile) > 0 {
-		probes = getProbesFromFile(args.ProbesFile)
+		probeSlice = getProbesFromFile(args.ProbesFile)
 	} else {
 		errorLogger.Fatal("Must provide either --get_probes or --probes_file " +
 			"to run experiment",
@@ -299,6 +284,6 @@ func main() {
 	}
 
 	inCountryLookup(
-		args.DomainFile, args.APIKey, probes, args.NumProbes, args.IDsFile,
+		args.DomainFile, args.APIKey, probeSlice, args.NumProbes, args.IDsFile,
 	)
 }
