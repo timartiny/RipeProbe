@@ -36,24 +36,6 @@ func setupArgs() InCountryLookupFlags {
 	return ret
 }
 
-// func simplifyProbeData(probeSlice []atlas.Probe) []probes.SimpleProbe {
-
-// 	var miniDatas []probes.SimpleProbe
-// 	for _, probe := range probeSlice {
-// 		var miniData probes.SimpleProbe
-// 		miniData.ID = probe.ID
-// 		miniData.AddressV4 = probe.AddressV4
-// 		miniData.PrefixV4 = probe.PrefixV4
-// 		miniData.AddressV6 = probe.AddressV6
-// 		miniData.PrefixV6 = probe.PrefixV6
-// 		miniData.CountryCode = probe.CountryCode
-
-// 		miniDatas = append(miniDatas, miniData)
-// 	}
-
-// 	return miniDatas
-// }
-
 func writeProbes(probeSlice []probes.SimpleProbe, writeFile string) {
 	probeF, err := os.Create(writeFile)
 	if err != nil {
