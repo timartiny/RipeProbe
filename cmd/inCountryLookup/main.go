@@ -20,13 +20,13 @@ var (
 )
 
 type InCountryLookupFlags struct {
-	CountryCode string `long:"country_code" description:"(Required) The Country Code to request probes from" required:"true" json:"country_code"`
-	DomainFile  string `long:"domain_file" description:"(Required) Path to the file containing the domains to perform DNS lookups for, one domain per line" required:"true" json:"domain_file"`
-	APIKey      string `long:"api_key" description:"(Required) Quote enclosed RIPE Atlas API key" required:"true" json:"api_key"`
-	IDsFile     string `long:"ids_file" description:"(Required) Path to the file to write the RIPE Atlas measurement IDs to" required:"true" json:"ids_file"`
-	GetProbes   bool   `long:"get_probes" description:"Whether to get new probes or not. If yes and probes_file is specified the probe ids will be written there" json:"get_probes"`
-	ProbesFile  string `long:"probes_file" description:"If get_probes is specified this is the file to write out the probes used in this experiment if get_probes is not specified then this is the file to read probes from. If ommitted nothing is written" json:"probe_file"`
-	NumProbes   int    `long:"num_probes" description:"Number of probes to do lookup with" default:"5" json:"num_probes"`
+	CountryCode string `arg:"--country_code,required" help:"(Required) The Country Code to request probes from" json:"country_code"`
+	DomainFile  string `arg:"--domain_file,required" help:"(Required) Path to the file containing the domains to perform DNS lookups for, one domain per line" json:"domain_file"`
+	APIKey      string `arg:"--api_key,required" help:"(Required) Quote enclosed RIPE Atlas API key" json:"api_key"`
+	IDsFile     string `arg:"--ids_file,required" help:"(Required) Path to the file to write the RIPE Atlas measurement IDs to" json:"ids_file"`
+	GetProbes   bool   `arg:"--get_probes" help:"Whether to get new probes or not. If yes and probes_file is specified the probe ids will be written there" json:"get_probes"`
+	ProbesFile  string `arg:"--probes_file" help:"If get_probes is specified this is the file to write out the probes used in this experiment if get_probes is not specified then this is the file to read probes from. If ommitted nothing is written" json:"probe_file"`
+	NumProbes   int    `arg:"--num_probes" help:"Number of probes to do lookup with" default:"5" json:"num_probes"`
 }
 
 func setupArgs() InCountryLookupFlags {
