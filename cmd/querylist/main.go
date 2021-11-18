@@ -70,7 +70,9 @@ type QuerylistFlags struct {
 	V4DNS               string `long:"v4_dns" description:"Path to the ZDNS results for v4 lookups" required:"true" json:"v4_dns"`
 	V6DNS               string `long:"v6_dns" description:"Path to the ZDNS results for v6 lookups" required:"true" json:"v6_dns"`
 	V4TLS               string `long:"v4_tls" description:"Path to the ZGrab results for v4 TLS banner grabs" required:"true" json:"v4_tls"`
+	V4DupTLS            string `long:"v4_dup_tls" description:"Path to the ZGrab results for v4 TLS banner grabs, duplication for timeouts" json:"v4_dup_tls"`
 	V6TLS               string `long:"v6_tls" description:"Path to the ZGrab results for v6 TLS banner grabs" required:"true" json:"v6_tls"`
+	V6DupTLS            string `long:"v6_dup_tls" description:"Path to the ZGrab results for v6 TLS banner grabs, duplication for timeouts" json:"v6_dup_tls"`
 	CitizenLabDirectory string `long:"citizen_lab_directory" description:"Path to the directory containing the Citizen Lab lists" required:"true" json:"citizen_lab_directory"`
 	Outfile             string `long:"out_file" description:"File to write all details to (in JSON)" required:"true" json:"out_file"`
 }
@@ -239,7 +241,13 @@ func addTLSResults(trm TLSResultsMap, path string) {
 			tmpTLSResults.Addresses = IPSupportsTLS{zgrabResult.IP: false}
 			trm[domainName] = tmpTLSResults
 		} else {
-			trm[domainName].Addresses[zgrabResult.IP] = false
+			if v, ok := trm[domainName].Addresses[zgrabResult.IP]; ok && v {
+				// we've already seen this and it supports TLS, no need to check
+				// again
+				continue
+			} else {
+				trm[domainName].Addresses[zgrabResult.IP] = false
+			}
 		}
 
 		tlsScanResults, ok := zgrabResult.Data["tls"]
@@ -420,6 +428,10 @@ func main() {
 	tlsResultsMap := make(TLSResultsMap)
 	infoLogger.Printf("Reading in v4 TLS banner grab results from %s\n", args.V4TLS)
 	addTLSResults(tlsResultsMap, args.V4TLS)
+	if len(args.V4DupTLS) > 0 {
+		// do it again with the duplicate TLS scans
+		addTLSResults(tlsResultsMap, args.V4DupTLS)
+	}
 	parseTLSResults(tlsResultsMap, domainResultsMap)
 	infoLogger.Printf("Google's results so far: %+v\n", domainResultsMap["google.com"])
 	infoLogger.Printf("Netflix's results so far: %+v\n", domainResultsMap["netflix.com"])
@@ -427,6 +439,10 @@ func main() {
 	tlsResultsMap = make(TLSResultsMap)
 	infoLogger.Printf("Reading in v6 TLS banner grab results from %s\n", args.V6TLS)
 	addTLSResults(tlsResultsMap, args.V6TLS)
+	if len(args.V6DupTLS) > 0 {
+		// do it again with the duplicate TLS scans
+		addTLSResults(tlsResultsMap, args.V6DupTLS)
+	}
 	parseTLSResults(tlsResultsMap, domainResultsMap)
 	infoLogger.Printf("Google's results so far: %+v\n", domainResultsMap["google.com"])
 	infoLogger.Printf("Netflix's results so far: %+v\n", domainResultsMap["netflix.com"])
